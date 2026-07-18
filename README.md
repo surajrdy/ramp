@@ -6,6 +6,8 @@ Compute Exchange is a VS Code sidebar and shared in-memory server for reallocati
 
 Dollar values are modeled cost-avoidance and internal chargeback estimates, not money moving through the application. Coinflip stakes are virtual demo units with no cash value or redemption path.
 
+Marketplace offers have an explicit internal incentive: when a teammate claims an escrowed allocation, the buyer spends the listed internal chargeback amount and the seller receives that same amount as flexible budget credits. The UI frames that carried balance as an IOU-like claim toward next week's budget; it is not cash, vendor credit, or a legally enforceable debt.
+
 ## Run locally
 
 Requirements: Node.js 20+, npm, and VS Code.
@@ -18,7 +20,7 @@ npm install
 npx tsx src/index.ts
 ```
 
-The HTTP and WebSocket server listens at `http://localhost:4747`. Set `PORT` to override it for deployment. Open `http://localhost:4747/spectate` for the live phone-friendly dashboard.
+The HTTP and WebSocket server listens at `http://localhost:4747`. Set `PORT` to override it for deployment. Open `http://localhost:4747/spectate` for the live phone-friendly dashboard and `http://localhost:4747/admin` for aggregate usage and forecast diagnostics.
 
 In another terminal, compile the extension:
 
@@ -58,6 +60,7 @@ Stage 0 is complete. See [`TEAM_HANDOFF.md`](./TEAM_HANDOFF.md) for the remainin
 | `POST` | `/bets/:id/accept` | Accept and settle a coinflip |
 | `POST` | `/admin/reset` | Restore the deterministic demo seed |
 | `GET` | `/spectate` | Live WebSocket-driven spectator dashboard |
+| `GET` | `/admin` | Read-only live usage and forecast console |
 
 Server errors use a `4xx` response with `{ "error": "..." }`.
 
