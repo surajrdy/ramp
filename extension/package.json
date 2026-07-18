@@ -1,0 +1,58 @@
+{
+  "name": "compute-exchange",
+  "displayName": "Compute Exchange",
+  "description": "Reallocate a team's simulated AI budget without leaving VS Code.",
+  "version": "0.1.0",
+  "publisher": "compute-exchange",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onView:computeExchange.view"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "computeExchange",
+          "title": "Compute Exchange",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "computeExchange": [
+        {
+          "type": "webview",
+          "id": "computeExchange.view",
+          "name": "Exchange"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Compute Exchange",
+      "properties": {
+        "computeExchange.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:4747",
+          "description": "URL of the shared Compute Exchange server."
+        },
+        "computeExchange.userId": {
+          "type": "string",
+          "default": "u3",
+          "description": "Seeded user represented by this VS Code client."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.9",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.8.3"
+  }
+}

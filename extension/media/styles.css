@@ -1,0 +1,95 @@
+:root {
+  color-scheme: light dark;
+  --accent: #e8ff2b;
+  --border: var(--vscode-panel-border, rgba(127, 127, 127, 0.35));
+  --surface: var(--vscode-sideBarSectionHeader-background, rgba(127, 127, 127, 0.08));
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 14px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+button, input { font: inherit; }
+
+button {
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 4px;
+  padding: 7px 10px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  cursor: pointer;
+}
+
+button:hover { background: var(--vscode-button-hoverBackground); }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+button.primary { color: #111; background: var(--accent); font-weight: 700; }
+button.primary:hover { background: #d9ef29; }
+
+input {
+  width: 90px;
+  border: 1px solid var(--vscode-input-border, var(--border));
+  border-radius: 4px;
+  padding: 8px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+}
+
+h1, h2, p { margin-top: 0; }
+h1 { margin-bottom: 0; font-size: 18px; }
+h2 { margin-bottom: 0; font-size: 15px; }
+
+.app-header, .section-heading, .listing, .usage-label, .form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.app-header { margin-bottom: 8px; }
+.eyebrow { color: var(--accent); font-family: var(--vscode-editor-font-family); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; }
+.framing { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.45; }
+.connection { color: var(--vscode-descriptionForeground); font-size: 11px; }
+.connection::before { content: "●"; margin-right: 5px; }
+.connection.online { color: var(--accent); }
+
+.tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 14px 0 18px; border-bottom: 1px solid var(--border); }
+.tab { border: 0; border-radius: 4px 4px 0 0; color: var(--vscode-foreground); background: transparent; }
+.tab.active { color: #111; background: var(--accent); font-weight: 800; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+.section-heading { margin: 18px 0 10px; }
+.section-heading:first-child { margin-top: 0; }
+.muted { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.45; }
+.card-list { display: grid; gap: 8px; }
+.card { display: grid; gap: 7px; padding: 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.card-title { font-weight: 750; }
+.badge { display: inline-block; margin-left: 5px; border-radius: 999px; padding: 2px 6px; color: #111; background: var(--accent); font-size: 10px; }
+.mine { color: var(--vscode-descriptionForeground); font-size: 10px; text-transform: uppercase; }
+.empty { padding: 16px; border: 1px dashed var(--border); border-radius: 6px; color: var(--vscode-descriptionForeground); text-align: center; }
+
+.savings { margin: 2px 0 22px; color: var(--accent); font-size: clamp(30px, 12vw, 52px); font-weight: 900; letter-spacing: -0.05em; line-height: 0.95; }
+.savings .currency { font-size: 0.5em; vertical-align: top; }
+.savings small { display: block; margin-top: 9px; color: var(--vscode-foreground); font-size: 11px; font-weight: 500; letter-spacing: 0; }
+.suggestion button { justify-self: start; }
+.usage-heading { margin-top: 24px; }
+.usage-list { display: grid; gap: 10px; }
+.usage-label { margin-bottom: 4px; font-size: 11px; }
+.usage-track { height: 7px; overflow: hidden; border-radius: 999px; background: var(--vscode-progressBar-background, rgba(127,127,127,.25)); }
+.usage-fill { height: 100%; border-radius: inherit; background: var(--accent); }
+.usage-fill.hot { background: var(--vscode-errorForeground, #f14c4c); }
+
+.coinflip-form { display: grid; gap: 7px; margin: 12px 0 24px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; }
+.coinflip-form label { font-weight: 700; }
+.form-row { justify-content: flex-start; }
+
+.toasts { position: fixed; right: 10px; bottom: 10px; left: 10px; z-index: 10; display: grid; gap: 6px; pointer-events: none; }
+.toast { padding: 10px; border: 1px solid var(--accent); border-radius: 5px; color: var(--vscode-notifications-foreground); background: var(--vscode-notifications-background); box-shadow: 0 5px 20px rgba(0,0,0,.3); }
+.toast.error { border-color: var(--vscode-errorForeground, #f14c4c); }
