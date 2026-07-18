@@ -39,6 +39,10 @@ Open the repository root in VS Code and press `F5`, then choose **Run Compute Ex
 
 All clients receive the same full state after each mutation. An event message is broadcast immediately before that state.
 
+## Team handoff
+
+Stage 0 is complete. See [`TEAM_HANDOFF.md`](./TEAM_HANDOFF.md) for the remaining feature tracks, shared-polish checklist, merge order, final acceptance gate, and demo script. The full copy/paste prompts for each teammate remain in [`codex-prompt-pack.md`](./codex-prompt-pack.md).
+
 ## Stage 0 API
 
 | Method | Path | Purpose |
