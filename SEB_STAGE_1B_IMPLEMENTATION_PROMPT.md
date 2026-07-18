@@ -202,6 +202,77 @@ If time is short after must-ship, skip stretch entirely rather than half-shippin
 
 ---
 
+## Clarifications (Seb Stage 1b) — resolved during design review
+
+These refine A–J after checking the resolved rules against the real Stage 0 code and the actual seed math. They are law alongside A–J. Where they touch an existing section, the section letter is noted.
+
+### C1. "Global index weights" means the original array position (refines B.2)
+
+The recency weight is the sample's position in the **full 14-day `usageHistory` array** (`weight = index + 1`, range 1–14), **not** its position within its weekday/weekend bucket. Do **not** re-index each bucket from 0 — that produces different averages and is wrong.
+
+Implement as a single pass: iterate `usageHistory` once, and for each element route `(Math.max(0, value), index + 1)` into either the weekday or weekend bucket. Then, per bucket, `dailyAvg = sum(value * weight) / sum(weight)`. Apply the B.3 empty-bucket fallback, then `projectedWeekly = 5 * weekdayDaily + 2 * weekendDaily`.
+
+### C2. The seed produces exactly ONE suggestion — this is expected (refines C/F)
+
+With this seed and the weekday-aware forecast, **u7/Burnzilla is the only deficit user (> 0.85)**. Greedy pairs it with the lowest-surplus source (u6/Credit Hoarder), consumes u7's entire need in one match, and stops. Verified across all 7 possible run days: u6 stays ≈ 0.13 (surplus), u7 stays 0.87–0.91 (deficit), and no borderline user (u2 0.72, u9 0.65, u10 0.66) ever crosses a threshold. So the suggestion set is deterministic regardless of demo date.
+
+Concrete expected values on fresh seed:
+
+- One suggestion: `Credit Hoarder → Burnzilla`, `amount = 504`, `projectedSavings = 403.20`.
+- Hero on fresh seed: realized `$0.00`, on-table `$403.20/wk`.
+- After one Accept: u7's `need` → 0, so the card **disappears**, on-table → `$0.00`, realized → `$403.20`, one bump.
+
+Consequence: the "accepting again re-adds" clause (E/F.4) is **latent** — it will not fire on this seed because `need` reaches 0 after the single full transfer. Keep the clause implemented (do not special-case it away); it is simply not exercised here.
+
+**Do not** widen the suggestion list by editing seed personalities — that file is shared demo state and out of Seb's lane (Seb may only add `realizedSavings: 0` to it). A richer multi-card list is a **proposal to the seed owner**, tracked in C10 below, not a change to make on `feat/team`.
+
+### C3. Weekday classification is calendar-dependent but demo-safe (confirms A)
+
+No action — recorded so it is not re-investigated. Because A overlays the **real** machine calendar onto seed data, bucket membership shifts with the run date, but the load-bearing thresholds (u6 surplus, u7 deficit) hold on every weekday. Safe to demo any day.
+
+### C4. Credit display caps at quota for overage users (confirms B) — accepted
+
+`displayCredits = Math.round(user.predictedUsagePct * user.weeklyQuota)` caps at `weeklyQuota` because `predictedUsagePct` is clamped to 1.0 in `recomputeDerivedState`. This is a non-issue for the seed (u7 projects 624 < 700). It only surfaces after `simulate-week` pushes someone > 100%, whose credit readout will then read exactly the quota. **Accepted as-is** — the overage magnitude already lives in the suggestion `reason` string (D). Do not un-clamp `predictedUsagePct`.
+
+### C5. Accept flow: one accept → bump → card clears (refines E/F.5)
+
+Intended UX: click Accept → realized increases once → hero bumps once → the card is gone on the next broadcast (per C2). Keep the existing `team.js` handler's `finally { button.disabled = false; }`. Do **not** add re-accept affordances or optimistic UI.
+
+### C6. Accept mutation ordering (refines E)
+
+In `POST /suggestions/:id/accept`, after the balance transfer:
+
+1. Capture locals first: `amount`, `fromUser.name`, `toUser.name`, `suggestion.projectedSavings`.
+2. `state.realizedSavings = round(state.realizedSavings + suggestion.projectedSavings, 2);`
+3. Build the event string (it embeds the **new** `state.realizedSavings`).
+4. Call `finishMutation(eventText)` last — its internal `recomputeDerivedState()` rebuilds `state.suggestions` **after** the string is built, so capturing locals in step 1 is required.
+
+### C7. Unify the "hot" threshold (refines G)
+
+Compute `const pct = Math.round(user.predictedUsagePct * 100)` once per row and drive **both** the usage bar `.hot` class **and** the sparkline hot stroke from `pct > 85`. Do not mix in a separate `predictedUsagePct > 0.85` test — the two disagree in the 85.1–85.4% band.
+
+### C8. Deterministic hash for simulate-week (refines I)
+
+Use, with no `Math.random()`:
+
+```ts
+const hash = [...user.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) + dayOffset * 31;
+const jitter = 0.9 + (hash % 21) / 100;              // 0.90 .. 1.10
+const value = Math.round(bucketDailyAvg * jitter);    // integers, matching seed style
+```
+
+`bucketDailyAvg` is the weekday or weekend daily average (from the same C1 computation) selected by the **future** day's `getDay()`. Append 7 such values, drop oldest until `usageHistory.length === 14`. Do not touch `realizedSavings`.
+
+### C9. `realizedSavings` and `/admin/reset` (confirms E/J) — no action
+
+`/admin/reset` (FEATURE 4, owner A) re-assigns `state = createSeedState()`, and the new `realizedSavings: 0` field means reset zeroes it automatically. Desirable for repeatable demos. **Do not** edit FEATURE 4 to achieve this.
+
+### C10. Proposal to the seed owner (NOT a `feat/team` change)
+
+Optional, hand off separately: to make "Recommended moves" a multi-card list, add a **second** deficit user in `seed.ts` (a user whose weekday-aware forecast lands > 85% of quota with a below-forecast balance), or reduce u6's balance so it cannot cover u7's need alone (forcing a second surplus source into the match). This is a shared-seed change and must be made by the seed owner, not on `feat/team`.
+
+---
+
 ## Implementation sequence
 
 1. `git checkout main && git pull && git checkout -b feat/team` (if branch missing).  
