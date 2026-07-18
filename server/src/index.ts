@@ -226,15 +226,47 @@ app.post("/trades", (request, response) => {
 
 // ===== FEATURE 2: FORECAST + TEAM SUGGESTIONS (Seb) =====
 
+function usageBucketAverages(user: User): { weekdayDaily: number; weekendDaily: number } {
+  const history = user.usageHistory;
+  const n = history.length;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let weekdaySum = 0;
+  let weekdayWeight = 0;
+  let weekendSum = 0;
+  let weekendWeight = 0;
+
+  for (let index = 0; index < n; index++) {
+    const daysAgo = n - 1 - index;
+    const day = new Date(today);
+    day.setDate(today.getDate() - daysAgo);
+    const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+    const value = Math.max(0, history[index] ?? 0);
+    const weight = index + 1;
+    if (isWeekend) {
+      weekendSum += value * weight;
+      weekendWeight += weight;
+    } else {
+      weekdaySum += value * weight;
+      weekdayWeight += weight;
+    }
+  }
+
+  if (weekdayWeight === 0 && weekendWeight === 0) {
+    return { weekdayDaily: 0, weekendDaily: 0 };
+  }
+
+  let weekdayDaily = weekdayWeight === 0 ? 0 : weekdaySum / weekdayWeight;
+  let weekendDaily = weekendWeight === 0 ? 0 : weekendSum / weekendWeight;
+  if (weekdayWeight === 0) weekdayDaily = weekendDaily;
+  if (weekendWeight === 0) weekendDaily = weekdayDaily;
+  return { weekdayDaily, weekendDaily };
+}
+
 function projectedWeeklyUsage(user: User): number {
-  const weighted = user.usageHistory.reduce(
-    (accumulator, usage, index) => {
-      const weight = index + 1;
-      return { total: accumulator.total + Math.max(0, usage) * weight, weights: accumulator.weights + weight };
-    },
-    { total: 0, weights: 0 },
-  );
-  return weighted.weights === 0 ? 0 : (weighted.total / weighted.weights) * 7;
+  const { weekdayDaily, weekendDaily } = usageBucketAverages(user);
+  return 5 * weekdayDaily + 2 * weekendDaily;
 }
 
 function buildSuggestions(): TeamSuggestion[] {
@@ -258,13 +290,14 @@ function buildSuggestions(): TeamSuggestion[] {
     const deficit = deficits[deficitIndex];
     const amount = Math.min(source.remaining, deficit.remaining);
     if (amount > 0) {
+      const projectedSavings = round(amount * (OVERAGE_RATE - INTERNAL_RATE));
       suggestions.push({
         id: `suggestion-${source.user.id}-${deficit.user.id}`,
         fromUserId: source.user.id,
         toUserId: deficit.user.id,
         amount,
-        projectedSavings: round(amount * (OVERAGE_RATE - INTERNAL_RATE)),
-        reason: `${source.user.name} has forecast surplus while ${deficit.user.name} is on track to exceed available allocation.`,
+        projectedSavings,
+        reason: `Without this move, ${deficit.user.name} pays overage on ~${amount}cr ($${(amount * OVERAGE_RATE).toFixed(2)}). Internal transfer costs $${(amount * INTERNAL_RATE).toFixed(2)}. Team saves $${projectedSavings.toFixed(2)}/wk.`,
       });
       source.remaining -= amount;
       deficit.remaining -= amount;
@@ -306,6 +339,29 @@ app.post("/suggestions/:id/accept", (request, response) => {
   toUser.balance += suggestion.amount;
   finishMutation(`${suggestion.amount} credits moved from ${fromUser.name} to ${toUser.name}, avoiding an estimated $${suggestion.projectedSavings.toFixed(2)}/wk.`);
   response.json({ accepted: suggestion });
+});
+
+app.post("/team/simulate-week", (_request, response) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  for (const user of state.users) {
+    const { weekdayDaily, weekendDaily } = usageBucketAverages(user);
+    const appended: number[] = [];
+    for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
+      const day = new Date(today);
+      day.setDate(today.getDate() + dayOffset);
+      const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+      const bucketDailyAvg = isWeekend ? weekendDaily : weekdayDaily;
+      const hash = [...user.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) + dayOffset * 31;
+      const jitter = 0.9 + (hash % 21) / 100;
+      appended.push(Math.round(bucketDailyAvg * jitter));
+    }
+    user.usageHistory = [...user.usageHistory, ...appended].slice(-14);
+  }
+
+  finishMutation("Fast-forwarded mock usage one week.");
+  response.json({ ok: true });
 });
 
 // ===== FEATURE 3: DEGEN COINFLIP (Liam + Daniel) =====
@@ -415,6 +471,10 @@ app.post("/bets/:id/accept", (request, response) => {
 });
 
 // ===== FEATURE 4: INTEGRATION + SPECTATOR SHELL (Suraj) =====
+
+app.get("/", (_request, response) => {
+  response.redirect("/spectate");
+});
 
 app.post("/usage/simulate", (request, response) => {
   if (!isRecord(request.body)) {
