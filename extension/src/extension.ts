@@ -57,16 +57,16 @@ class ComputeExchangeViewProvider implements vscode.WebviewViewProvider {
   <header class="app-chrome">
     <div class="app-header">
       <div>
-        <div class="eyebrow">INTERNAL AI BUDGET</div>
+        <div class="eyebrow">TEAM COMPUTE</div>
         <h1>Compute Exchange</h1>
       </div>
       <span id="connection" class="connection status-pill" role="status" aria-live="polite">Connecting</span>
     </div>
-    <p class="framing">Internal demo units · no cash-out</p>
+    <p class="framing">Move unused AI budget where it is needed · internal demo only.</p>
     <nav class="tabs segmented" role="tablist" aria-label="Exchange sections">
-      <button id="tab-market" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="market" data-tab="market">Market</button>
+      <button id="tab-market" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="market" data-tab="market">Exchange</button>
       <button id="tab-team" class="tab" type="button" role="tab" aria-selected="false" aria-controls="team" data-tab="team" tabindex="-1">Team</button>
-      <button id="tab-bet" class="tab" type="button" role="tab" aria-selected="false" aria-controls="bet" data-tab="bet" tabindex="-1">Degen</button>
+      <button id="tab-bet" class="tab" type="button" role="tab" aria-selected="false" aria-controls="bet" data-tab="bet" tabindex="-1">Play</button>
     </nav>
   </header>
   <main class="app-main">

@@ -10,7 +10,13 @@
   };
 
   const percent = (value) => `${Math.round(Math.max(0, value || 0) * 100)}%`;
-  const rate = (value) => Number(value || 0).toFixed(2);
+  const forecastCredits = (user) => Math.round(user.weeklyQuota * user.predictedUsagePct);
+  const discount = (price) => Math.max(0, Math.round((1 - Number(price || 0)) * 100));
+  const outlook = (user) => {
+    if (user.predictedUsagePct < 0.6) return "You are likely to have credits left to share.";
+    if (user.predictedUsagePct > 0.85) return "You may need more credits for this week’s workload.";
+    return "Your available credits and expected usage look balanced.";
+  };
   const when = (value) => {
     const timestamp = new Date(value).getTime();
     if (!Number.isFinite(timestamp)) return "recently";
@@ -31,23 +37,25 @@
     const suggested = view.suggestion;
     const draft = view.draft || { amount: "", pricePerCredit: "" };
     const submitting = view.pending.has("list");
+    const amount = Number(draft.amount);
     return `<form id="market-listing-form" class="sheet stack" aria-labelledby="listing-sheet-title">
       <div class="card-row sheet-heading">
         <div>
-          <div class="eyebrow">LIST SURPLUS</div>
-          <h2 id="listing-sheet-title">Offer internal allocation</h2>
+          <div class="eyebrow">SHARE UNUSED BUDGET</div>
+          <h2 id="listing-sheet-title">Offer credits to your team</h2>
         </div>
         <button class="ghost compact" type="button" data-market-action="close-sheet" aria-label="Close listing form">Close</button>
       </div>
       ${view.loadingSuggestion
-        ? '<div class="empty compact-empty" role="status">Calculating a forecast-aware price…</div>'
-        : `<p class="muted">Edit the server suggestion before listing. Credits move into escrow until bought or cancelled.</p>
+        ? '<div class="empty compact-empty" role="status">Checking how many credits you are likely to need…</div>'
+        : `<p class="muted">Publishing sets these credits aside for teammates. Withdraw the offer anytime before someone claims it.</p>
           <div class="field-grid">
-            <label class="field" for="listing-amount"><span>Credits</span><input id="listing-amount" name="amount" type="number" min="1" step="1" inputmode="numeric" value="${window.escapeHtml(draft.amount)}" required></label>
-            <label class="field" for="listing-price"><span>Internal rate</span><input id="listing-price" name="pricePerCredit" type="number" min="0.01" max="1" step="0.01" inputmode="decimal" value="${window.escapeHtml(draft.pricePerCredit)}" required></label>
+            <label class="field" for="listing-amount"><span>Credits to share</span><input id="listing-amount" name="amount" type="number" min="1" step="1" inputmode="numeric" value="${window.escapeHtml(draft.amount)}" required></label>
+            <label class="field" for="listing-price"><span>Team rate per credit</span><input id="listing-price" name="pricePerCredit" type="number" min="0.01" max="1" step="0.01" inputmode="decimal" value="${window.escapeHtml(draft.pricePerCredit)}" required></label>
           </div>
-          ${suggested ? `<p class="hint">Suggested from your forecast: ${suggested.amount}cr at ${rate(suggested.pricePerCredit)}x.</p>` : ""}
-          <button class="primary full-width" type="submit" ${submitting || !me || Number(draft.amount) < 1 ? "disabled" : ""}>${submitting ? "Listing…" : "Move to escrow & list"}</button>`}
+          <p class="hint">1.00 is the standard team rate. A lower rate gives the teammate receiving your credits a discount.</p>
+          ${suggested ? `<p class="hint">Based on your usage outlook: share ${suggested.amount} credits with a ${discount(suggested.pricePerCredit)}% discount.</p>` : ""}
+          <button class="primary full-width" type="submit" ${submitting || !me || amount < 1 ? "disabled" : ""}>${submitting ? "Publishing offer…" : amount > 0 ? `Offer ${amount} credits` : "Publish offer"}</button>`}
     </form>`;
   }
 
@@ -62,73 +70,76 @@
       .sort((left, right) => new Date(right.ts).getTime() - new Date(left.ts).getTime())
       .slice(0, 5);
     const showTeamHandoff = Boolean(me && view.burstComplete && me.predictedUsagePct > 0.85);
+    const expectedUse = me ? forecastCredits(me) : 0;
 
     panel.innerHTML = `
       <section class="hero market-hero" aria-labelledby="allocation-title">
-        <div class="hero-kicker" id="allocation-title">${me ? `${window.escapeHtml(me.name)} · available allocation` : "Unknown configured user"}</div>
-        <div class="hero-value">${me ? me.balance : "—"}<span>cr</span></div>
+        <div class="hero-kicker" id="allocation-title">${me ? `${window.escapeHtml(me.name)}’s AI budget` : "Unknown configured user"}</div>
+        <div class="hero-value">${me ? me.balance : "—"}<span> credits available</span></div>
         <div class="metric-row">
-          <div class="metric"><span>Forecast</span><strong>${me ? percent(me.predictedUsagePct) : "—"}</strong></div>
-          <div class="metric"><span>Weekly quota</span><strong>${me ? `${me.weeklyQuota}cr` : "—"}</strong></div>
+          <div class="metric"><span>Expected use this week</span><strong>${me ? `${expectedUse} credits` : "—"}</strong></div>
+          <div class="metric"><span>Weekly plan</span><strong>${me ? `${me.weeklyQuota} credits` : "—"}</strong></div>
         </div>
+        ${me ? `<p class="muted">${outlook(me)}</p>` : ""}
       </section>
 
       <section class="card workload-card stack" aria-labelledby="workload-title">
         <div class="card-row">
-          <div><div class="eyebrow">LIVE BACKEND DEMO</div><h2 id="workload-title">Create real demand</h2></div>
-          <span class="chip">+300cr</span>
+          <div><div class="eyebrow">LIVE DEMO</div><h2 id="workload-title">See a workload change your plan</h2></div>
+          <span class="chip">300-credit job</span>
         </div>
-        <p class="muted">Records a simulated agent workload on the server. It changes the forecast and recommendations, but never mints or burns allocation.</p>
-        <button class="primary full-width" data-market-action="burst" ${!me || view.pending.has("burst") ? "disabled" : ""}>${view.pending.has("burst") ? "Running workload…" : "Run 300cr agent burst"}</button>
+        <p class="muted">Simulate a heavy AI job on the backend. Your expected need and team recommendations update live; your available balance stays untouched.</p>
+        <button class="primary full-width" data-market-action="burst" ${!me || view.pending.has("burst") ? "disabled" : ""}>${view.pending.has("burst") ? "Running workload…" : "Simulate heavy AI workload"}</button>
       </section>
 
       ${showTeamHandoff ? `<aside class="handoff card-row" role="status">
-        <div><strong>Forecast changed</strong><span>Open Team to apply the server’s allocation move.</span></div>
-        <button class="secondary" data-nav-tab="team">Open Team</button>
+        <div><strong>Your usage outlook changed</strong><span>You now expect to need about ${expectedUse} credits. Team has a recommended move.</span></div>
+        <button class="secondary" data-nav-tab="team">Review recommendation</button>
       </aside>` : ""}
 
       <section class="stack market-section" aria-labelledby="order-book-title">
         <div class="section-heading">
-          <div><div class="eyebrow">INTERNAL ORDER BOOK</div><h2 id="order-book-title">Available allocations</h2></div>
-          <span class="count-chip">${openListings.length} open</span>
+          <div><div class="eyebrow">TEAM EXCHANGE</div><h2 id="order-book-title">Credits your team can share</h2></div>
+          <span class="count-chip">${openListings.length} ${openListings.length === 1 ? "offer" : "offers"}</span>
         </div>
-        <button class="secondary full-width" data-market-action="open-sheet" ${me ? "" : "disabled"}>List surplus allocation</button>
+        <button class="secondary full-width" data-market-action="open-sheet" ${me ? "" : "disabled"}>Share my unused credits</button>
         ${listingSheet(me)}
         <div class="card-list allocations">
           ${openListings.length ? openListings.map((listing) => {
             const seller = window.userById(state, listing.sellerId);
-            const discount = Math.max(0, Math.round((1 - listing.pricePerCredit) * 100));
+            const listingDiscount = discount(listing.pricePerCredit);
             const isMine = listing.sellerId === window.currentUserId;
             const pendingKey = `${isMine ? "cancel" : "buy"}:${listing.id}`;
             return `<article class="card allocation-card">
               <div class="card-row allocation-topline">
-                <div><div class="allocation-amount">${listing.amount}<span>cr</span></div><div class="rate-line">${rate(listing.pricePerCredit)}x internal rate</div></div>
-                <span class="badge">${discount}% below baseline</span>
+                <div><div class="allocation-amount">${listing.amount}<span> credits</span></div><div class="rate-line">Ready to move now</div></div>
+                <span class="badge">${listingDiscount}% team discount</span>
               </div>
               <div class="seller-context">
-                <span>${window.escapeHtml(seller?.name || "Unknown seller")}</span>
-                <span>${seller ? `${percent(seller.predictedUsagePct)} forecast` : "Forecast unavailable"}</span>
+                <span>From ${window.escapeHtml(seller?.name || "a teammate")}</span>
+                <span>${seller ? `expects to use ${percent(seller.predictedUsagePct)} of their weekly plan` : "usage outlook unavailable"}</span>
                 <span>${when(listing.createdAt)}</span>
               </div>
               ${isMine
-                ? `<button class="ghost full-width" data-market-action="cancel" data-listing-id="${window.escapeHtml(listing.id)}" ${view.pending.has(pendingKey) ? "disabled" : ""}>${view.pending.has(pendingKey) ? "Cancelling…" : "Cancel & return escrow"}</button>`
-                : `<button class="primary full-width" data-market-action="buy" data-listing-id="${window.escapeHtml(listing.id)}" ${!me || view.pending.has(pendingKey) ? "disabled" : ""}>${view.pending.has(pendingKey) ? "Reallocating…" : `Reallocate ${listing.amount}cr to me`}</button>`}
+                ? `<button class="ghost full-width" data-market-action="cancel" data-listing-id="${window.escapeHtml(listing.id)}" ${view.pending.has(pendingKey) ? "disabled" : ""}>${view.pending.has(pendingKey) ? "Withdrawing offer…" : "Withdraw offer and return credits"}</button>`
+                : `<button class="primary full-width" data-market-action="buy" data-listing-id="${window.escapeHtml(listing.id)}" ${!me || view.pending.has(pendingKey) ? "disabled" : ""}>${view.pending.has(pendingKey) ? "Moving credits…" : `Add ${listing.amount} credits to my budget`}</button>`}
             </article>`;
-          }).join("") : '<div class="empty">No open allocations. List forecast surplus to start the exchange.</div>'}
+          }).join("") : '<div class="empty">No shared credits right now. Offer unused credits to start the exchange.</div>'}
         </div>
       </section>
 
       <section class="stack market-section" aria-labelledby="recent-trades-title">
-        <div class="section-heading"><div><div class="eyebrow">SERVER-SETTLED</div><h2 id="recent-trades-title">Recent reallocations</h2></div></div>
+        <div class="section-heading"><div><div class="eyebrow">RECENT ACTIVITY</div><h2 id="recent-trades-title">Credits moved</h2></div></div>
         <div class="trade-list">
           ${recentTrades.length ? recentTrades.map((trade) => {
             const buyer = window.userById(state, trade.buyerId);
             const seller = window.userById(state, trade.sellerId);
+            const tradeDiscount = discount(trade.amount ? trade.total / trade.amount : 0);
             return `<article class="trade-row">
-              <div><strong>${window.escapeHtml(seller?.name || "Unknown")} → ${window.escapeHtml(buyer?.name || "Unknown")}</strong><span>${trade.amount}cr · ${rate(trade.amount ? trade.total / trade.amount : 0)}x rate</span></div>
+              <div><strong>${window.escapeHtml(seller?.name || "A teammate")} shared with ${window.escapeHtml(buyer?.name || "a teammate")}</strong><span>${trade.amount} credits · ${tradeDiscount}% team discount</span></div>
               <time datetime="${window.escapeHtml(trade.ts)}">${when(trade.ts)}</time>
             </article>`;
-          }).join("") : '<div class="empty compact-empty">Completed reallocations will appear here.</div>'}
+          }).join("") : '<div class="empty compact-empty">Team credit moves will appear here.</div>'}
         </div>
       </section>`;
   };
