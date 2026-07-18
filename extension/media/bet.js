@@ -1,4 +1,4 @@
-// OWNER: D — replace everything below freely, keep only the window.renderers registration.
+// OWNER: Liam + Daniel — replace everything below freely, keep only the window.renderers registration.
 (() => {
   window.renderers.bet = (state) => {
     const panel = document.getElementById("bet");

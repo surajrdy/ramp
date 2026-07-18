@@ -1,6 +1,6 @@
 # Team Handoff — What Remains
 
-Stage 0 is complete and `main` is the working integration baseline. The remaining job is feature depth, shared polish, deployment, and one repeatable demo loop.
+Stage 0 is complete and `main` is the working integration baseline. The remaining job is one real usage-to-allocation loop, feature depth, shared polish, deployment, and a repeatable demo.
 
 In this project, “models” means deterministic server-side forecasting, pricing, and matching logic. Do not add OpenAI, Anthropic, Cursor, or other provider API calls; the demo must remain an in-memory internal-allocation simulation.
 
@@ -11,21 +11,22 @@ Each teammate should pull the latest `main`, create only their assigned branch, 
 ```bash
 git clone https://github.com/surajrdy/ramp.git
 cd ramp
-git checkout -b feat/market
+git checkout -b feat/integration-ui
 ```
 
-Substitute `feat/team`, `feat/degen`, or `feat/spectate` as appropriate. If the repository is already cloned, run `git checkout main && git pull` before creating the branch.
+Seb substitutes `feat/team`; Liam and Daniel both use `feat/degen` and coordinate before pushing. If the repository is already cloned, run `git checkout main && git pull` before creating the branch.
 
 ## Parallel feature tracks
 
 | Owner | Branch | Must ship before merge | Stretch only after must-ship work |
 | --- | --- | --- | --- |
-| Liam | `feat/market` | Discount-sorted order book, seller forecast context, listing cancellation/refund, editable surplus form, projected proceeds, last-five trade history | Next-week futures listing |
+| Suraj | `feat/integration-ui` | [`USAGE_TRANSFER_SPEC.md`](./USAGE_TRANSFER_SPEC.md), Market, shared iPhone-like UI primitives, reset, spectator/deploy, final integration | Provider-usage adapter design only; no live provider dependency |
 | Seb | `feat/team` | Weekday-aware forecast, projected usage in credits, narrative counterfactuals, realized-savings headline, 14-day sparklines | Seven-day mock simulation |
-| D | `feat/degen` | Coinflip suspense/confetti, targeted challenges, winner/loser leaderboard, spectator-friendly result events | Five-minute mock usage race |
-| A + E | `feat/spectate` | `PORT` support, tunnel/deploy instructions, three-column spectator page, `/admin/reset`, HTTPS/WSS smoke test | QR polish after the live dashboard works |
+| Liam + Daniel | `feat/degen` | Coinflip suspense/confetti, targeted challenges, winner/loser leaderboard, spectator-friendly result events, at least one extra virtual game | Five-minute mock usage race |
 
-Feature owners stay inside their tab file and marked section of `server/src/index.ts`. A owns the extension shell, `app.js`, and shared CSS coordination. E owns spectator/demo integration. Any `shared/types.ts` change must be coordinated before editing so all branches use the same contract.
+Feature owners stay inside their tab file and marked section of `server/src/index.ts`. Suraj owns Market, the extension shell, `app.js`, shared CSS, usage-demo endpoints, spectator/deploy, and final integration. Seb owns Team and forecast/suggestion logic. Liam and Daniel jointly own Degen and games. Any `shared/types.ts` change must be coordinated before editing so all branches use the same contract.
+
+Suraj implements the exact seeded flow in [`USAGE_TRANSFER_SPEC.md`](./USAGE_TRANSFER_SPEC.md): a server-recorded agent burst changes demand, the model creates a recommendation, and accepting it transfers conserved internal allocation. All visual work follows [`UI_DIRECTION.md`](./UI_DIRECTION.md).
 
 ## Shared polish after features work
 
@@ -40,8 +41,8 @@ Feature owners stay inside their tab file and marked section of `server/src/inde
 ## Merge and integration order
 
 1. Each feature branch pulls or rebases onto the latest `main` and reruns its own flow.
-2. Merge `feat/market`, then `feat/team`, then `feat/degen`, resolving only the marked server sections each owner changed.
-3. Merge `feat/spectate` last because it consumes the final state and events from every feature.
+2. Merge `feat/team`, then `feat/degen`, resolving only the marked server sections each owner changed.
+3. Rebase and merge `feat/integration-ui` last because it owns the shell and consumes the final state and events from every feature.
 4. Freeze feature work after the first complete demo loop; only fix acceptance-breaking bugs afterward.
 
 `main` must always start. Never merge a branch that breaks the Stage 0 trade or coinflip loop.
@@ -56,12 +57,14 @@ Feature owners stay inside their tab file and marked section of `server/src/inde
 - [ ] A full coinflip opens, settles, pays exactly `2 × stake`, and broadcasts the result.
 - [ ] Credits remain conserved across balances plus listing/bet escrow.
 - [ ] Invalid actions return `4xx {error}` and appear as webview toasts.
+- [ ] A `300cr` simulated workload changes D's forecast, creates a recommendation, and broadcasts event then state to two clients in under one second.
+- [ ] Accepting that recommendation moves the same number of credits out of the source and into D without changing the conserved total.
 - [ ] `/admin/reset` restores a repeatable seed state.
 - [ ] Three extension clients and two spectator pages stay synchronized through trade → suggestion → coinflip.
 - [ ] The public URL works over HTTPS and the extension automatically uses WSS.
 
 ## Final demo and pitch
 
-Prepare one 60–90 second script: reset, show Burnzilla’s forecast, list/buy surplus on another laptop, accept the recommended team move, point to the changed savings number, run a coinflip, and show the spectator feed updating.
+Prepare one 60–90 second script: reset, run D's `300cr` agent burst, show the forecast-created recommendation, apply the allocation, point to the changed balances and savings, buy a listed allocation on another laptop, run a Degen game, and show the spectator feed updating.
 
 Use the core framing verbatim: “Compute Exchange never transfers vendor credits between accounts—it is an internal budget-reallocation layer over an organization’s existing spend.” Option B—the platform-owned provider proxy—is a roadmap slide only and must not become demo code.

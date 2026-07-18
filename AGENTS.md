@@ -12,10 +12,10 @@ Read SYSTEM_DESIGN.md first. It is canonical. If a request conflicts with it, fl
 
 ## File ownership — stay in your lane
 - `shared/types.ts` — do NOT edit unless the task explicitly says so; propose changes in your summary instead.
-- `extension/media/market.js` + marketplace section of `server/src/index.ts` — Liam's sessions only.
+- `extension/media/market.js` + marketplace section of `server/src/index.ts` — Suraj's sessions only.
 - `extension/media/team.js` + forecast/suggestions section — Seb's sessions only.
-- `extension/media/bet.js` + bets section — D's sessions only.
-- `extension/src/`, `extension/media/app.js`, `/spectate`, deploy — A/E sessions only.
+- `extension/media/bet.js` + bets section — Liam and Daniel's sessions only.
+- `extension/src/`, `extension/media/app.js`, shared CSS, usage-demo endpoints, `/spectate`, and deploy — Suraj's sessions only.
 - Server sections are marked with `// ===== FEATURE N =====` comments. Never edit outside your feature's section except to fix a bug you introduced.
 - Keep each tab's `window.renderers.<tab> = (state) => {...}` registration intact — it is the only shell↔tab contract.
 

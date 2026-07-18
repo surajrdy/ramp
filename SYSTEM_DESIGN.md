@@ -3,7 +3,7 @@ Commit this at the repo root. Every Codex session should read this before writin
 
 ## What this is
 
-A VS Code sidebar extension where developers inside one organization reallocate, pool, and play with simulated AI budget credits. Built in one day (Builders Cup 2026), 5 developers, hard 3:00 PM cutoff. Main track: Save Time / Save Money. Secondary: Audience Favorite via a live crowd-facing spectator page.
+A VS Code sidebar extension where developers inside one organization reallocate, pool, and play with simulated AI budget credits. Built in one day (Builders Cup 2026), with a hard 3:00 PM cutoff. Main track: Save Time / Save Money. Secondary: Audience Favorite via a live crowd-facing spectator page.
 
 **Product boundary:** Compute Exchange never transfers vendor credits between accounts—it is an internal budget-reallocation layer over an organization's existing spend. Stage 0 credits are in-memory allocation units, not vendor service credits, money, stored value, or redeemable rewards. The demo never accepts provider credentials, calls provider APIs, or offers deposits, withdrawals, payments, or cash-out.
 
@@ -36,13 +36,13 @@ Design rules that make this work in 4 hours:
 shared/types.ts        contracts — PR-only changes, everyone imports these
 server/src/index.ts    endpoints + core logic, sectioned by feature (stay in your section)
 server/src/seed.ts     10 mock users with personality (hoarder, Burnzilla, etc.)
-extension/src/         VS Code shell: view registration, CSP, settings — owner A
+extension/src/         VS Code shell: view registration, CSP, settings — owner Suraj
 extension/media/app.js shared webview runtime: WS client w/ reconnect, api() helper,
-                       state store, toasts, tab switching, window.renderers registry — owner A
-extension/media/market.js  Feature 1 — Liam
+                       state store, toasts, tab switching, window.renderers registry — owner Suraj
+extension/media/market.js  Feature 1 — Suraj
 extension/media/team.js    Feature 2 — Seb (+ forecast/matching section of server)
-extension/media/bet.js     Feature 3 — D
-/spectate route + deploy   E + A (Stage 2)
+extension/media/bet.js     Feature 3 — Liam + Daniel
+/usage/simulate, /spectate, shared UI, deploy — Suraj
 ```
 
 Each tab file registers `window.renderers.<tab> = (state) => {...}` and the shared runtime calls every renderer on every state broadcast. That registration is the only contract between shell and tabs.
@@ -71,6 +71,7 @@ Simulated internal credits are the universal unit. Face value 1.0 is a modeled i
 | POST | /trades | listingId, buyerId | settle, listing → filled |
 | GET | /price-suggestion/:userId | — | {amount, pricePerCredit} from surplus curve |
 | POST | /suggestions/:id/accept | — | transfer credits per suggestion |
+| POST | /usage/simulate | userId, credits | record simulated demand; recompute forecast (Stage 0.5) |
 | POST | /bets | challengerId, stake, opponentId? | escrow stake, open bet |
 | POST | /bets/:id/accept | userId | escrow acceptor, flip, winner +2× stake |
 | POST | /admin/reset | — | re-seed everything (Stage 2) |
@@ -85,6 +86,8 @@ Every mutation: validate → mutate → recompute forecast + suggestions → bro
 **Pricing curve** (`/price-suggestion`) — bigger predicted surplus ⇒ steeper suggested discount. `surplusPct = max(0, 0.9 − predictedUsagePct)`; suggest listing half the surplus at `price = max(0.30, 1 − surplusPct)`. Rationale: use-it-or-lose-it credits should clear fast.
 
 **Team matching** — greedy, NOT a solver: sort surplus users (<60% predicted) ascending, deficit users (>85%) descending, pair off, `amount = min(free, need)`, `projectedSavings = amount × (OVERAGE_RATE − INTERNAL_RATE)`. Greedy demos identically to optimal and ships by lunch.
+
+**Usage demo** — `POST /usage/simulate` adds normalized demand to the newest history sample, then uses the normal recompute-and-broadcast path. Usage changes the forecast; accepting the resulting suggestion moves conserved allocation. Usage is a demand meter and does not burn ledger balance. The exact seeded loop and validation contract live in [`USAGE_TRANSFER_SPEC.md`](./USAGE_TRANSFER_SPEC.md).
 
 **Coinflip** — server-authoritative `Math.random()`, winner takes 2× virtual stake. It has no cash value, redemption path, or external effect.
 
@@ -101,8 +104,8 @@ Server reads `PORT` from env. Demo day: `cloudflared tunnel --url http://localho
 ## Stages
 
 - **0** — scaffold above, all 3 tabs minimally working, acceptance: 2 clients sync a trade <1s, full coinflip round works. Push, everyone clones.
-- **1a/1b/1c** — parallel feature depth on `feat/market`, `feat/team`, `feat/degen` (see prompt pack).
-- **2** — tunnel + spectator page + reset endpoint (`feat/spectate`).
+- **1a/1b/1c** — parallel work on Suraj's `feat/integration-ui`, Seb's `feat/team`, and Liam + Daniel's `feat/degen` (see prompt pack).
+- **2** — Suraj finishes the tunnel, spectator page, reset endpoint, and integration on `feat/integration-ui`.
 - Merge by 2:30, freeze 2:30, submit 2:45. main must always run.
 
 ## Explicit non-goals (do not build these)
@@ -113,4 +116,4 @@ Auth/identity (userId in settings is enough) · persistence · payments/real mon
 
 ## Demo requirements (product decisions, not polish)
 
-Repeatable via /admin/reset · two-laptop trade visible <1s · savings headline reacts to Accept · coinflip has suspense + result broadcast to spectator feed · spectator page self-explains to a stranger holding a phone.
+Repeatable via /admin/reset · simulated workload changes forecast and creates a real transfer recommendation · two-laptop trade visible <1s · savings headline reacts to Accept · coinflip has suspense + result broadcast to spectator feed · spectator page self-explains to a stranger holding a phone.
