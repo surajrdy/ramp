@@ -51,25 +51,30 @@ EXTENSION:
 - Style with VS Code CSS variables (--vscode-*) so it matches the editor theme; accent color #e8ff2b.
 - Top comment in each of the 3 tab files: "OWNER: <name> — replace everything below freely, keep only the window.renderers registration."
 
-README must cover: npm install at each of server/ and extension/; run server with npx tsx src/index.ts; run extension with F5 (Extension Development Host) after npx tsc; how a teammate points computeExchange.serverUrl at another laptop's IP; file ownership map (market.js=Liam, team.js+server suggestions=Seb, bet.js=D, extension shell+integration=A, spectate+demo=E).
+README must cover: npm install at each of server/ and extension/; run server with npx tsx src/index.ts; run extension with F5 (Extension Development Host) after npx tsc; how a teammate points computeExchange.serverUrl at another laptop's IP; file ownership map (market.js+shell+integration+spectate=Suraj, team.js+server suggestions=Seb, bet.js+games=Liam and Daniel).
 
 ACCEPTANCE: server starts clean; extension compiles with tsc and shows all 3 tabs with live data; buying a listing on one client updates another connected client via WebSocket within 1s; a full coinflip round works end-to-end. Verify all of this before finishing.
 ```
 
-After it passes acceptance: `git init && gh repo create` (or push to your org), everyone clones, branches: `feat/market`, `feat/team`, `feat/degen`, `feat/spectate`.
+After it passes acceptance: `git init && gh repo create` (or push to your org), everyone clones. Suraj uses `feat/integration-ui`, Seb uses `feat/team`, and Liam + Daniel pair on `feat/degen`.
 
 ---
 
-## STAGE 1a — Marketplace (Liam, branch feat/market)
+## STAGE 1a — Usage loop + Marketplace + UI (Suraj, branch feat/integration-ui)
 
 ```
-In this repo, you own extension/media/market.js and the marketplace endpoints in server/src/index.ts. Do not touch shared/types.ts (propose changes via PR), team.js, or bet.js.
+In this repo, you own extension/media/market.js, the marketplace section, the integration/spectator server section, extension/src/, extension/media/app.js, and shared styles. Do not touch shared/types.ts (propose changes via PR), team.js, its forecast/suggestion section, or bet.js.
+
+Read USAGE_TRANSFER_SPEC.md and UI_DIRECTION.md first. Finish the numbered items in this order:
+
+1. Real usage-to-allocation loop: implement POST /usage/simulate exactly as specified. Add the Market/integration workload card and seeded 300cr agent-burst action. The server mutation—not the client—updates usage, recomputes derived state, and broadcasts event then state. Add POST /admin/reset so the loop is repeatable.
+2. Shared visual system: land the tokens, 44px controls, rounded segmented tabs, mobile-first spacing, visible focus, reduced motion, and common components in UI_DIRECTION.md. Keep all renderer registrations and VS Code theme support.
 
 Upgrade the marketplace:
-1. Order book UX: sort open listings by discount (best deal first), show seller name + their predicted usage % ("selling because they'll only use 22%"), and my own listings with a Cancel button (new endpoint POST /listings/:id/cancel that refunds escrow).
-2. Smarter "List my surplus": pre-fill an editable amount + price form from /price-suggestion instead of listing instantly; show projected proceeds ("earn ~340cr worth $X vs letting it expire worthless").
-3. Trade history strip: last 5 trades with discount %, so the market feels alive.
-4. Stretch ONLY if the above is done: a "next week futures" toggle on listing — sells predicted next-week surplus at an extra 15% discount, tagged with a FUTURES badge in the book. Reuse Listing with an added optional field (PR the type change).
+3. Order book UX: sort open listings by discount (best deal first), show seller name + their predicted usage % ("selling because they'll only use 22%"), and my own listings with a Cancel button (new endpoint POST /listings/:id/cancel that refunds escrow).
+4. Smarter "List my surplus": pre-fill an editable amount + price form from /price-suggestion instead of listing instantly; show projected proceeds as modeled internal value, never cash earnings.
+5. Trade history strip: last 5 trades with discount %, so the market feels alive.
+6. Stretch ONLY if the above is done: a "next week futures" toggle on listing — sells predicted next-week surplus at an extra 15% discount, tagged with a FUTURES badge in the book. Reuse Listing with an added optional field (PR the type change).
 
 Keep it plain JS, keep window.renderers.market registration, keep VS Code CSS variables. Test with two extension hosts pointed at the same server.
 ```
@@ -82,34 +87,35 @@ In this repo, you own extension/media/team.js and the forecast/suggestion logic 
 Upgrade the optimizer:
 1. Better forecast: make the moving average weekday-aware (weekdays vs weekends modeled separately) and expose per-user predicted end-of-week usage in credits, not just %.
 2. Suggestions with narrative: each card explains the counterfactual — "Without this move, Burnzilla pays overage on ~180cr ($270). Internal transfer costs $126. Team saves $144/wk."
-3. Cumulative savings counter: server tracks total realized savings from accepted suggestions; render it as the big headline and animate when it increases.
+3. Savings counter: keep the server-derived "savings on the table" headline and animate when accepted moves change it. A separate realized-savings history requires a coordinated shared contract change and is not required.
 4. Sparkline per user: tiny inline SVG of their 14-day usageHistory next to their usage bar. Plain JS string-built SVG, no chart library.
 5. Stretch ONLY if done: a "run week simulation" button that fast-forwards mock usage 7 days so judges can watch suggestions regenerate live.
 
 Greedy matching stays — no solver. Keep window.renderers.team registration.
 ```
 
-## STAGE 1c — Degen tab (teammate D, branch feat/degen)
+## STAGE 1c — Degen + games (Liam + Daniel, branch feat/degen)
 
 ```
-In this repo, you own extension/media/bet.js and the bet endpoints in server/src/index.ts. Do not touch market.js or team.js.
+In this repo, Liam and Daniel jointly own extension/media/bet.js and the bet/game endpoints in server/src/index.ts. Do not touch market.js or team.js. Coordinate commits on the same branch and pull before each push.
 
 Upgrade the degen tab:
 1. Coinflip drama: on settle, 1.5s suspense animation in the webview (flipping coin emoji cycle), then result with a confetti burst (plain JS/CSS, no library) and a louder toast.
 2. Targeted challenges: dropdown of users to challenge directly (opponentId), plus open challenges as today. Challenged user sees a highlighted "You've been called out" card.
 3. Degen leaderboard: server tracks per-user net winnings; render Biggest Winner / Biggest Loser with crowns/clown emoji. Broadcast leaderboard changes as events so they hit the spectator feed.
-4. Stretch ONLY if done: "usage race" game — two users bet on who burns more mock compute in the next 5 minutes; server simulates ticking usage and broadcasts a live progress bar.
+4. Add at least one more short, virtual-only coinflip presentation variant using the existing `Bet.game: "coinflip"` contract. A genuinely different settlement game requires a coordinated `shared/types.ts` change before implementation.
+5. Stretch ONLY if done: "usage race" game — two users bet on who burns more mock compute in the next 5 minutes; server simulates ticking usage and broadcasts a live progress bar.
 
 Keep window.renderers.bet registration. House never takes a rake — credits are conserved.
 ```
 
-## STAGE 2 — Integration + crowd mode (A + E, branch feat/spectate, start ~1:00 PM)
+## STAGE 2 — Integration + crowd mode (Suraj, continue feat/integration-ui, start ~1:00 PM)
 
 ```
-In this repo: deploy + spectator polish. Do not modify the three tab files.
+In this repo, Suraj owns deploy, spectator polish, shell integration, and Market. Do not modify team.js or bet.js.
 
 1. Make the server deployable: read PORT from env, add a Procfile/start script, deploy to Railway (or run `cloudflared tunnel --url http://localhost:4747` and document the URL swap). Confirm wss:// works through the tunnel — the extension's CSP derives ws URL from serverUrl, so https tunnel ⇒ wss automatically.
-2. Rebuild GET /spectate into a crowd-facing page: dark theme, accent #e8ff2b, three columns — live event feed, order book, degen leaderboard — plus the team savings headline huge at the top. Auto-updating from the same WebSocket. Add a QR code of the page's own URL in the corner (tiny inline QR generator, no heavy deps).
+2. Rebuild GET /spectate into a crowd-facing page: dark theme, accent #e8ff2b, one phone-first column that becomes three columns at `min-width: 900px` — live event feed, order book, degen leaderboard — plus the team savings headline huge at the top. Auto-updating from the same WebSocket. Add a QR code of the page's own URL in the corner (tiny inline QR generator, no heavy deps).
 3. A "reset demo" endpoint POST /admin/reset that re-seeds state, so we can run the demo repeatedly at the science fair.
 4. Smoke test: 3 extension clients + 2 phone browsers on /spectate, one full loop of trade → accept suggestion → coinflip, everything updates everywhere within 1s.
 ```
@@ -118,9 +124,9 @@ In this repo: deploy + spectator polish. Do not modify the three tab files.
 
 ## Timeline check (3:00 hard cutoff)
 - 11:00–11:40 · Stage 0 runs, acceptance passes, pushed. Teammates clone.
-- 11:40–1:15 · Stages 1a/1b/1c in parallel. E drafts submission blurb + demo script.
-- 1:00–1:45 · Stage 2 (A+E) while features continue.
-- 1:45–2:30 · Merge branches (market → team → degen → spectate), fix conflicts, feature depth.
+- 11:40–1:15 · Suraj, Seb, and Liam + Daniel work their three tracks in parallel. Draft the submission blurb + demo script early.
+- 1:00–1:45 · Suraj continues Stage 2 while features continue.
+- 1:45–2:30 · Merge branches (team → degen → integration-ui), fix conflicts, feature depth.
 - 2:30 · FREEZE. Run demo loop twice. 2:45 submit. Nobody codes at 2:55.
 
 ## Merge rules (say this in the group chat)

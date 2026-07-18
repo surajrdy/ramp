@@ -79,7 +79,7 @@ app.get("/state", (_request, response) => {
   response.json(state);
 });
 
-// ===== FEATURE 1: MARKETPLACE (Liam) =====
+// ===== FEATURE 1: MARKETPLACE (Suraj) =====
 
 function priceSuggestion(user: User): { amount: number; pricePerCredit: number } {
   const surplusPct = Math.max(0, 0.9 - user.predictedUsagePct);
@@ -275,7 +275,7 @@ app.post("/suggestions/:id/accept", (request, response) => {
   response.json({ accepted: suggestion });
 });
 
-// ===== FEATURE 3: DEGEN COINFLIP (D) =====
+// ===== FEATURE 3: DEGEN COINFLIP (Liam + Daniel) =====
 
 app.post("/bets", (request, response) => {
   if (!isRecord(request.body)) {
@@ -381,7 +381,7 @@ app.post("/bets/:id/accept", (request, response) => {
   response.json(bet);
 });
 
-// ===== FEATURE 4: SPECTATOR SHELL (A/E) =====
+// ===== FEATURE 4: INTEGRATION + SPECTATOR SHELL (Suraj) =====
 
 app.get("/spectate", (_request, response) => {
   response.type("html").send(`<!doctype html>

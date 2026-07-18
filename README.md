@@ -41,7 +41,7 @@ All clients receive the same full state after each mutation. An event message is
 
 ## Team handoff
 
-Stage 0 is complete. See [`TEAM_HANDOFF.md`](./TEAM_HANDOFF.md) for the remaining feature tracks, shared-polish checklist, merge order, final acceptance gate, and demo script. The full copy/paste prompts for each teammate remain in [`codex-prompt-pack.md`](./codex-prompt-pack.md).
+Stage 0 is complete. See [`TEAM_HANDOFF.md`](./TEAM_HANDOFF.md) for the remaining feature tracks, merge order, acceptance gate, and demo script. The real usage-to-allocation loop is specified in [`USAGE_TRANSFER_SPEC.md`](./USAGE_TRANSFER_SPEC.md), and the cleaner phone-like interface direction is in [`UI_DIRECTION.md`](./UI_DIRECTION.md). The full copy/paste prompts remain in [`codex-prompt-pack.md`](./codex-prompt-pack.md).
 
 ## Stage 0 API
 
@@ -62,14 +62,13 @@ Server errors use a `4xx` response with `{ "error": "..." }`.
 
 | Area | Owner |
 | --- | --- |
-| `extension/media/market.js` and marketplace server section | Liam |
+| `extension/media/market.js` and marketplace server section | Suraj |
 | `extension/media/team.js` and forecast/suggestions server section | Seb |
-| `extension/media/bet.js` and bets server section | D |
-| Extension shell, `extension/src/`, and `extension/media/app.js` | A |
-| `/spectate` and demo integration | E |
+| `extension/media/bet.js` and bets server section | Liam + Daniel |
+| Extension shell, shared CSS/UI, usage demo, `/spectate`, deploy, and integration | Suraj |
 | `shared/types.ts` | PR-only shared contract |
 
-Stage 1 branches: `feat/market`, `feat/team`, `feat/degen`, and `feat/spectate`. Keep `main` runnable and stay inside the marked feature sections in `server/src/index.ts`.
+Working branches: Suraj uses `feat/integration-ui`, Seb uses `feat/team`, and Liam + Daniel pair on `feat/degen`. Keep `main` runnable and stay inside the marked feature sections in `server/src/index.ts`.
 
 ## Roadmap: platform-owned API routing
 

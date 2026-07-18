@@ -1,4 +1,4 @@
-// OWNER: Liam — replace everything below freely, keep only the window.renderers registration.
+// OWNER: Suraj — replace everything below freely, keep only the window.renderers registration.
 (() => {
   window.renderers.market = (state) => {
     const panel = document.getElementById("market");
