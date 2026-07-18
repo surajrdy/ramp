@@ -226,15 +226,47 @@ app.post("/trades", (request, response) => {
 
 // ===== FEATURE 2: FORECAST + TEAM SUGGESTIONS (Seb) =====
 
+function usageBucketAverages(user: User): { weekdayDaily: number; weekendDaily: number } {
+  const history = user.usageHistory;
+  const n = history.length;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let weekdaySum = 0;
+  let weekdayWeight = 0;
+  let weekendSum = 0;
+  let weekendWeight = 0;
+
+  for (let index = 0; index < n; index++) {
+    const daysAgo = n - 1 - index;
+    const day = new Date(today);
+    day.setDate(today.getDate() - daysAgo);
+    const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+    const value = Math.max(0, history[index] ?? 0);
+    const weight = index + 1;
+    if (isWeekend) {
+      weekendSum += value * weight;
+      weekendWeight += weight;
+    } else {
+      weekdaySum += value * weight;
+      weekdayWeight += weight;
+    }
+  }
+
+  if (weekdayWeight === 0 && weekendWeight === 0) {
+    return { weekdayDaily: 0, weekendDaily: 0 };
+  }
+
+  let weekdayDaily = weekdayWeight === 0 ? 0 : weekdaySum / weekdayWeight;
+  let weekendDaily = weekendWeight === 0 ? 0 : weekendSum / weekendWeight;
+  if (weekdayWeight === 0) weekdayDaily = weekendDaily;
+  if (weekendWeight === 0) weekendDaily = weekdayDaily;
+  return { weekdayDaily, weekendDaily };
+}
+
 function projectedWeeklyUsage(user: User): number {
-  const weighted = user.usageHistory.reduce(
-    (accumulator, usage, index) => {
-      const weight = index + 1;
-      return { total: accumulator.total + Math.max(0, usage) * weight, weights: accumulator.weights + weight };
-    },
-    { total: 0, weights: 0 },
-  );
-  return weighted.weights === 0 ? 0 : (weighted.total / weighted.weights) * 7;
+  const { weekdayDaily, weekendDaily } = usageBucketAverages(user);
+  return 5 * weekdayDaily + 2 * weekendDaily;
 }
 
 function buildSuggestions(): TeamSuggestion[] {
@@ -258,13 +290,14 @@ function buildSuggestions(): TeamSuggestion[] {
     const deficit = deficits[deficitIndex];
     const amount = Math.min(source.remaining, deficit.remaining);
     if (amount > 0) {
+      const projectedSavings = round(amount * (OVERAGE_RATE - INTERNAL_RATE));
       suggestions.push({
         id: `suggestion-${source.user.id}-${deficit.user.id}`,
         fromUserId: source.user.id,
         toUserId: deficit.user.id,
         amount,
-        projectedSavings: round(amount * (OVERAGE_RATE - INTERNAL_RATE)),
-        reason: `${source.user.name} has forecast surplus while ${deficit.user.name} is on track to exceed available allocation.`,
+        projectedSavings,
+        reason: `Without this move, ${deficit.user.name} pays overage on ~${amount}cr ($${(amount * OVERAGE_RATE).toFixed(2)}). Internal transfer costs $${(amount * INTERNAL_RATE).toFixed(2)}. Team saves $${projectedSavings.toFixed(2)}/wk.`,
       });
       source.remaining -= amount;
       deficit.remaining -= amount;
@@ -306,6 +339,29 @@ app.post("/suggestions/:id/accept", (request, response) => {
   toUser.balance += suggestion.amount;
   finishMutation(`${suggestion.amount} credits moved from ${fromUser.name} to ${toUser.name}, avoiding an estimated $${suggestion.projectedSavings.toFixed(2)}/wk.`);
   response.json({ accepted: suggestion });
+});
+
+app.post("/team/simulate-week", (_request, response) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  for (const user of state.users) {
+    const { weekdayDaily, weekendDaily } = usageBucketAverages(user);
+    const appended: number[] = [];
+    for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
+      const day = new Date(today);
+      day.setDate(today.getDate() + dayOffset);
+      const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+      const bucketDailyAvg = isWeekend ? weekendDaily : weekdayDaily;
+      const hash = [...user.id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) + dayOffset * 31;
+      const jitter = 0.9 + (hash % 21) / 100;
+      appended.push(Math.round(bucketDailyAvg * jitter));
+    }
+    user.usageHistory = [...user.usageHistory, ...appended].slice(-14);
+  }
+
+  finishMutation("Fast-forwarded mock usage one week.");
+  response.json({ ok: true });
 });
 
 // ===== FEATURE 3: DEGEN COINFLIP (Liam + Daniel) =====
@@ -416,6 +472,10 @@ app.post("/bets/:id/accept", (request, response) => {
 
 // ===== FEATURE 4: INTEGRATION + SPECTATOR SHELL (Suraj) =====
 
+app.get("/", (_request, response) => {
+  response.redirect("/spectate");
+});
+
 app.post("/usage/simulate", (request, response) => {
   if (!isRecord(request.body)) {
     sendError(response, 400, "Request body must be an object");
@@ -475,50 +535,99 @@ app.get("/spectate", (_request, response) => {
   <title>Compute Exchange Live</title>
   <style>
     :root {
-      color-scheme: dark;
+      color-scheme: light;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
-      background: #080a0c;
-      color: #f7f8f8;
+      background: #f5efe5;
+      color: #2d2926;
       --accent: #e8ff2b;
-      --panel: rgba(255, 255, 255, 0.065);
-      --line: rgba(255, 255, 255, 0.1);
-      --muted: #9ba3aa;
+      --paper: #f5efe5;
+      --panel: rgba(255, 252, 246, .66);
+      --panel-solid: rgba(255, 252, 246, .88);
+      --line: rgba(255, 255, 255, .8);
+      --line-warm: rgba(73, 63, 53, .1);
+      --ink: #2d2926;
+      --ink-soft: #615a53;
+      --muted: #817970;
+      --shadow: 0 18px 60px rgba(72, 55, 39, .09), inset 0 1px 0 rgba(255, 255, 255, .82);
     }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 80% -10%, #26300c 0, transparent 32rem), #080a0c; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at 92% 4%, rgba(225, 199, 166, .62) 0, transparent 24rem),
+        radial-gradient(circle at 4% 42%, rgba(255, 255, 255, .92) 0, transparent 26rem),
+        linear-gradient(145deg, #f8f3ea 0%, #efe6d8 100%);
+    }
+    body::before, body::after {
+      content: "";
+      position: fixed;
+      z-index: -1;
+      border-radius: 999px;
+      filter: blur(2px);
+      pointer-events: none;
+    }
+    body::before { width: 220px; height: 220px; top: 18%; right: -90px; background: rgba(255, 255, 255, .5); }
+    body::after { width: 160px; height: 160px; bottom: 8%; left: -80px; background: rgba(210, 183, 151, .22); }
     main { width: min(1080px, 100%); min-width: 0; margin: 0 auto; padding: 18px 16px 44px; overflow: hidden; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .brand { font-size: 13px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
-    #status { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
-    #status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #ffb340; box-shadow: 0 0 14px currentColor; }
-    #status.live { color: var(--accent); }
+    .brand { font-size: 13px; font-weight: 760; letter-spacing: -.01em; }
+    #status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 252, 246, .55);
+      color: var(--muted);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
+      font-size: 12px;
+      font-weight: 650;
+      backdrop-filter: blur(18px) saturate(130%);
+      -webkit-backdrop-filter: blur(18px) saturate(130%);
+    }
+    #status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #b4a89c; }
+    #status.live { color: var(--ink); }
     #status.live::before { background: var(--accent); }
-    .hero { padding: 48px 0 26px; }
-    h1 { max-width: 760px; margin: 0; font-size: clamp(38px, 9vw, 76px); line-height: .94; letter-spacing: -.055em; }
-    .hero p { max-width: 650px; margin: 20px 0 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
+    .hero { padding: 52px 2px 30px; }
+    .kicker { margin: 0 0 13px; color: var(--ink-soft); font-size: 12px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+    h1 { max-width: 800px; margin: 0; font-size: clamp(40px, 9vw, 76px); font-weight: 680; line-height: .98; letter-spacing: -.052em; }
+    .hero p { max-width: 610px; margin: 20px 0 0; color: var(--ink-soft); font-size: 15px; line-height: 1.6; }
     .metrics { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-    .metric, .panel { border: 1px solid var(--line); border-radius: 20px; background: var(--panel); backdrop-filter: blur(18px); }
-    .metric { min-width: 0; min-height: 112px; padding: 17px; overflow: hidden; }
-    .metric span { display: block; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-    .metric strong { display: block; margin-top: 12px; overflow-wrap: anywhere; font-size: clamp(22px, 7vw, 38px); letter-spacing: -.04em; }
-    .metric.accent strong { color: var(--accent); }
+    .metric, .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(28px) saturate(125%);
+      -webkit-backdrop-filter: blur(28px) saturate(125%);
+    }
+    .metric { position: relative; min-width: 0; min-height: 142px; padding: 17px; overflow: hidden; border-radius: 24px; }
+    .metric > span { display: block; color: var(--ink-soft); font-size: 12px; font-weight: 720; }
+    .metric strong { display: block; margin-top: 14px; overflow-wrap: anywhere; font-size: clamp(25px, 7vw, 38px); font-weight: 690; letter-spacing: -.045em; }
+    .metric small { display: block; max-width: 20ch; margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .metric.positive::after { content: ""; position: absolute; width: 9px; height: 9px; top: 18px; right: 18px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px rgba(232, 255, 43, .18); }
     .layout { display: grid; gap: 12px; margin-top: 12px; }
-    .panel { padding: 18px; overflow: hidden; }
-    .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+    .panel { padding: 18px; overflow: hidden; border-radius: 26px; }
+    .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
     .panel-head > * { min-width: 0; }
-    h2 { margin: 0; font-size: 17px; letter-spacing: -.02em; }
-    .eyebrow { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-align: right; text-transform: uppercase; }
+    h2 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.025em; }
+    .panel-copy { max-width: 30ch; margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .eyebrow { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--ink-soft); font-size: 10px; font-weight: 680; white-space: nowrap; }
     #feed, #members, #offers { display: grid; gap: 9px; }
-    .event, .member, .offer, .empty { padding: 13px 14px; border-radius: 14px; background: rgba(0, 0, 0, .25); }
-    .event { border-left: 3px solid var(--accent); font-size: 14px; line-height: 1.35; }
+    .event, .member, .offer, .empty { padding: 13px 14px; border: 1px solid rgba(86, 73, 60, .07); border-radius: 16px; background: var(--panel-solid); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .62); }
+    .event { font-size: 14px; line-height: 1.42; }
     .event time, .empty { color: var(--muted); font-size: 11px; }
     .event time { display: block; margin-top: 6px; }
-    .member-top, .offer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .member-name, .offer strong { font-size: 13px; font-weight: 700; }
-    .member-values, .offer span { color: var(--muted); font-size: 12px; white-space: nowrap; }
-    .bar { height: 5px; margin-top: 10px; overflow: hidden; border-radius: 99px; background: rgba(255, 255, 255, .09); }
-    .bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
-    .boundary { margin: 18px 2px 0; color: #697078; font-size: 11px; line-height: 1.45; }
+    .member-top { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 6px 12px; }
+    .offer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .member-name, .offer strong { color: var(--ink); font-size: 13px; font-weight: 720; }
+    .member-values, .offer span { color: var(--muted); font-size: 11px; }
+    .member-values { text-align: right; }
+    .bar { height: 6px; margin-top: 10px; overflow: hidden; border-radius: 99px; background: rgba(76, 65, 54, .09); }
+    .bar i { display: block; height: 100%; border-radius: inherit; background: #71685f; }
+    .boundary { margin: 19px 3px 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
     @media (min-width: 760px) {
       main { padding: 26px 28px 64px; }
       .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -526,6 +635,12 @@ app.get("/spectate", (_request, response) => {
       .activity { grid-row: span 2; }
       .metric { min-height: 128px; padding: 20px; }
       .panel { padding: 21px; }
+    }
+    @media (max-width: 420px) {
+      .hero { padding-top: 42px; }
+      .metric { min-height: 152px; }
+      .member-top { grid-template-columns: 1fr; }
+      .member-values { text-align: left; }
     }
     @media (prefers-reduced-motion: no-preference) {
       .event { animation: enter .22s ease-out; }
@@ -540,30 +655,31 @@ app.get("/spectate", (_request, response) => {
       <div id="status">Connecting</div>
     </header>
     <section class="hero">
-      <h1>AI budget,<br>moving live.</h1>
-      <p>Watch one organization turn idle allocation into usable capacity. Workloads change demand, then the team moves conserved internal credits where they are needed.</p>
+      <p class="kicker">Live team allocation</p>
+      <h1>Put unused AI budget to work.</h1>
+      <p>When one teammate needs more capacity, Compute Exchange moves spare internal credits from someone who needs less. Watch every workload and transfer update live.</p>
     </section>
     <section class="metrics" aria-label="Live exchange summary">
-      <div class="metric"><span>Team allocation</span><strong id="allocation">—</strong></div>
-      <div class="metric"><span>Open offers</span><strong id="open-offers">—</strong></div>
-      <div class="metric"><span>Moves completed</span><strong id="moves">—</strong></div>
-      <div class="metric accent"><span>Potential savings</span><strong id="savings">—</strong></div>
+      <div class="metric"><span>Total team credits</span><strong id="allocation">—</strong><small>Available now or held safely for an open action</small></div>
+      <div class="metric"><span>Offers ready</span><strong id="open-offers">—</strong><small>Allocations teammates can claim</small></div>
+      <div class="metric"><span>Transfers made</span><strong id="moves">—</strong><small>Completed moves between teammates</small></div>
+      <div class="metric positive"><span>Weekly savings available</span><strong id="savings">—</strong><small>Estimated if the current team matches are accepted</small></div>
     </section>
     <section class="layout">
       <section class="panel activity">
-        <div class="panel-head"><h2>Live activity</h2><span class="eyebrow">Event → state</span></div>
-        <div id="feed" aria-live="polite"><div class="empty">Waiting for the next move…</div></div>
+        <div class="panel-head"><div><h2>What is happening</h2><p class="panel-copy">Workloads, offers, transfers, and games appear here as they happen.</p></div><span class="eyebrow">Live</span></div>
+        <div id="feed" aria-live="polite"><div class="empty">Waiting for the next team action…</div></div>
       </section>
       <section class="panel">
-        <div class="panel-head"><h2>Team demand</h2><span class="eyebrow">7-day forecast</span></div>
+        <div class="panel-head"><div><h2>Who may need capacity</h2><p class="panel-copy">Forecast shows how much of each person's weekly allocation they are likely to use.</p></div><span class="eyebrow">Next 7 days</span></div>
         <div id="members"></div>
       </section>
       <section class="panel">
-        <div class="panel-head"><h2>Allocation market</h2><span class="eyebrow">Internal only</span></div>
+        <div class="panel-head"><div><h2>Credits available to the team</h2><p class="panel-copy">Open offers move internal budget without sharing vendor accounts or keys.</p></div><span class="eyebrow">Inside this team</span></div>
         <div id="offers"></div>
       </section>
     </section>
-    <p class="boundary">Demo units have no cash value. Compute Exchange never transfers vendor credits, accounts, or credentials.</p>
+    <p class="boundary">These demo credits are internal planning units with no cash value. Vendor credits, accounts, and credentials never move between people.</p>
   </main>
   <script>
     const elements = {
@@ -592,7 +708,7 @@ app.get("/spectate", (_request, response) => {
         + openListings.reduce((sum, listing) => sum + listing.amount, 0)
         + openBets.reduce((sum, bet) => sum + bet.stake, 0);
       const savings = state.suggestions.reduce((sum, suggestion) => sum + suggestion.projectedSavings, 0);
-      elements.allocation.textContent = number.format(allocated) + "cr";
+      elements.allocation.textContent = number.format(allocated) + " credits";
       elements.offers.textContent = String(openListings.length);
       elements.moves.textContent = String(state.trades.length);
       elements.savings.textContent = "$" + number.format(savings) + "/wk";
@@ -604,19 +720,19 @@ app.get("/spectate", (_request, response) => {
         .map((user) => {
           const forecast = Math.round(user.predictedUsagePct * 100);
           return '<article class="member"><div class="member-top"><span class="member-name">'
-            + escapeHtml(user.name) + '</span><span class="member-values">' + number.format(user.balance)
-            + 'cr · ' + forecast + '%</span></div><div class="bar"><i style="width:'
+            + escapeHtml(user.name) + '</span><span class="member-values">Forecast: ' + forecast
+            + '% · ' + number.format(user.balance) + ' credits available</span></div><div class="bar"><i style="width:'
             + Math.min(100, Math.max(0, forecast)) + '%"></i></div></article>';
         })
         .join("");
 
       const names = new Map(state.users.map((user) => [user.id, user.name]));
       elements.offerList.innerHTML = openListings.length === 0
-        ? '<div class="empty">No allocation is listed right now.</div>'
+        ? '<div class="empty">No spare credits are being offered right now.</div>'
         : openListings.slice(0, 5).map((listing) => '<article class="offer"><div><strong>'
-          + number.format(listing.amount) + 'cr</strong><br><span>from '
+          + number.format(listing.amount) + ' credits</strong><br><span>Offered by '
           + escapeHtml(names.get(listing.sellerId) || listing.sellerId)
-          + '</span></div><span>' + Number(listing.pricePerCredit).toFixed(2) + '× rate</span></article>').join("");
+          + '</span></div><span>' + Number(listing.pricePerCredit).toFixed(2) + '× internal rate</span></article>').join("");
     }
 
     function addEvent(text) {
