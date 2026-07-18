@@ -1,13 +1,69 @@
 // OWNER: Suraj — additive presentation variant over the existing virtual coinflip contract.
 (() => {
   const baseRenderer = window.renderers.bet;
-  const view = { lane: "left", stake: "20", opponentId: "", pending: false };
+  const view = {
+    lane: "left",
+    stake: "20",
+    opponentId: "",
+    pending: false,
+    animatedBetId: "",
+    revealedBetId: "",
+    revealTimer: null,
+  };
 
   const relevantResult = (state) => [...state.bets].reverse().find((bet) => (
     bet.status === "settled"
     && Boolean(bet.opponentId)
     && (bet.challengerId === window.currentUserId || bet.opponentId === window.currentUserId)
   ));
+
+  function raceState(result) {
+    if (!result) return "waiting";
+    if (view.revealedBetId === result.id) return "finished";
+    if (view.animatedBetId !== result.id) {
+      view.animatedBetId = result.id;
+      clearTimeout(view.revealTimer);
+      view.revealTimer = setTimeout(() => {
+        view.revealedBetId = result.id;
+        if (window.exchangeState) window.renderers.bet(window.exchangeState);
+      }, 2900);
+    }
+    return "running";
+  }
+
+  function crossyBoard(state, activeBet, result, me, selectedOpponent) {
+    const challenger = activeBet ? window.userById(state, activeBet.challengerId) : me;
+    const opponent = activeBet?.opponentId ? window.userById(state, activeBet.opponentId) : selectedOpponent;
+    const boardState = raceState(result);
+    const challengerWon = Boolean(result && result.winnerId === challenger?.id);
+    const opponentWon = Boolean(result && result.winnerId === opponent?.id);
+    const winner = result ? window.userById(state, result.winnerId) : null;
+    const loser = result ? (challengerWon ? opponent : challenger) : null;
+    const stake = activeBet?.stake || Number(view.stake) || 0;
+    const label = result
+      ? `${winner?.name || "A player"} won the two-player crossing race`
+      : activeBet
+        ? `${challenger?.name || "One player"} is waiting to race ${opponent?.name || "an opponent"}`
+        : `${me?.name || "Player one"} versus ${selectedOpponent?.name || "player two"} Crossy-style preview`;
+
+    return `<div class="crossy-board ${boardState}" role="img" aria-label="${window.escapeHtml(label)}">
+      <div class="crossy-finish"><span>FINISH</span></div>
+      <div class="crossy-road" aria-hidden="true">
+        <div class="crossy-lane lane-three"><span class="crossy-car car-a">🚕</span><span class="crossy-car car-b">🚙</span></div>
+        <div class="crossy-lane lane-two"><span class="crossy-car car-b">🚗</span><span class="crossy-car car-c">🛻</span></div>
+        <div class="crossy-lane lane-one"><span class="crossy-car car-c">🚓</span><span class="crossy-car car-a">🚐</span></div>
+      </div>
+      <div class="crossy-player player-one ${challengerWon ? "winner" : result ? "loser" : ""}">
+        <span class="crossy-avatar">🐸</span><span class="crossy-name">${window.escapeHtml(challenger?.name || "Player 1")}</span>
+      </div>
+      <div class="crossy-player player-two ${opponentWon ? "winner" : result ? "loser" : ""}">
+        <span class="crossy-avatar">🐔</span><span class="crossy-name">${window.escapeHtml(opponent?.name || "Player 2")}</span>
+      </div>
+      <div class="crossy-result-reveal" aria-live="polite">
+        ${result ? `<strong>${window.escapeHtml(winner?.name || "A teammate")} crossed first · ${stake * 2} virtual credits</strong><span>${window.escapeHtml(loser?.name || "The other player")} got flattened by the Ohio commute.</span>` : activeBet ? `<strong>Waiting at the curb</strong><span>${window.escapeHtml(opponent?.name || "The opponent")} must accept to start both players.</span>` : `<strong>Two players. Three traffic lanes. One surviving aura.</strong><span>Send the 1v1 to put both teammates on the road.</span>`}
+      </div>
+    </div>`;
+  }
 
   window.renderers.bet = (state) => {
     if (typeof baseRenderer === "function") baseRenderer(state);
@@ -21,10 +77,9 @@
       bet.challengerId === window.currentUserId || bet.opponentId === window.currentUserId
     ));
     const incoming = open.filter((bet) => bet.opponentId === window.currentUserId);
-    const result = relevantResult(state);
-    const winner = result ? window.userById(state, result.winnerId) : null;
-    const loserId = result ? (result.winnerId === result.challengerId ? result.opponentId : result.challengerId) : null;
-    const loser = loserId ? window.userById(state, loserId) : null;
+    const activeBet = open[0] || null;
+    const result = activeBet ? null : relevantResult(state);
+    const selectedOpponent = window.userById(state, view.opponentId);
 
     panel.insertAdjacentHTML("beforeend", `
       <section class="crossroad stack" aria-labelledby="crossroad-title">
@@ -32,7 +87,8 @@
           <div><div class="eyebrow">1V1 BRAINROT · VIRTUAL ONLY</div><h2 id="crossroad-title">Ohio Crossroads</h2></div>
           <span class="chip">50 / 50</span>
         </div>
-        <p class="muted">Call out one teammate. Pick a cursed road for flavor; the server still settles a fair virtual coinflip with escrow.</p>
+        <p class="muted">Pick a simulated teammate and run the 1v1 instantly. Both virtual stakes are escrowed; the server-selected 50/50 winner reaches safety first.</p>
+        ${crossyBoard(state, activeBet || result, result, me, selectedOpponent)}
         <form id="crossroad-form" class="crossroad-form">
           <label class="field" for="crossroad-opponent"><span>Who gets fanum-taxed?</span>
             <select id="crossroad-opponent" name="opponentId" ${me ? "" : "disabled"}>
@@ -44,7 +100,7 @@
             <button type="button" class="lane ${view.lane === "left" ? "active" : ""}" data-crossroad-action="lane" data-lane="left">← Aura road</button>
             <button type="button" class="lane ${view.lane === "right" ? "active" : ""}" data-crossroad-action="lane" data-lane="right">Skibidi road →</button>
           </div>
-          <button class="primary full-width" type="submit" ${!me || view.pending || open.some((bet) => bet.challengerId === window.currentUserId) ? "disabled" : ""}>${view.pending ? "Entering Ohio…" : "Send cursed 1v1"}</button>
+          <button class="primary full-width" type="submit" ${!me || view.pending || open.some((bet) => bet.challengerId === window.currentUserId) ? "disabled" : ""}>${view.pending ? "Crossing…" : "Simulate 1v1 now"}</button>
           <span class="crossroad-guardrail">Lane choice is cosmetic · no cash value · no redemption</span>
         </form>
 
@@ -53,10 +109,6 @@
           return `<button class="secondary full-width" data-crossroad-action="accept" data-bet-id="${window.escapeHtml(bet.id)}" ${view.pending ? "disabled" : ""}>Face ${window.escapeHtml(challenger?.name || "a teammate")} for ${bet.stake} credits</button>`;
         }).join("")}</div>` : ""}
 
-        ${result ? `<article class="crossroad-result">
-          <span class="crossroad-emoji">${result.winnerId === window.currentUserId ? "🧠👑" : "🚧💀"}</span>
-          <div><strong>${window.escapeHtml(winner?.name || "A teammate")} escaped with ${result.stake * 2} virtual credits</strong><span>${window.escapeHtml(loser?.name || "The loser")} got negative aura at the function.</span></div>
-        </article>` : ""}
       </section>`);
   };
 
@@ -73,12 +125,13 @@
     event.preventDefault();
     view.pending = true;
     try {
-      await window.api("/bets", {
+      const bet = await window.api("/bets", {
         challengerId: window.currentUserId,
         opponentId: view.opponentId,
         stake: Number(view.stake),
       });
-      window.toast(`Crossroad challenge sent via the ${view.lane === "left" ? "aura" : "skibidi"} road`);
+      await window.api(`/bets/${encodeURIComponent(bet.id)}/accept`, { userId: view.opponentId });
+      window.toast(`Simulated 1v1 started on the ${view.lane === "left" ? "aura" : "skibidi"} road`);
     } catch {
       // window.api already surfaced the server error.
     } finally {
