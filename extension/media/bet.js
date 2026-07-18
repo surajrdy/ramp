@@ -1,15 +1,15 @@
-// OWNER: Liam + Daniel — replace everything below freely, keep only the window.renderers registration.
+// OWNER: D + Liam — Games hub with sub-navigation. Keep window.renderers.bet registration intact.
 (() => {
-  window.renderers.bet = (state) => {
-    const panel = document.getElementById("bet");
-    if (!panel) return;
+  let selectedGame = "coinflip";
+  window.gameRenderers = window.gameRenderers || {};
+
+  // ===== COINFLIP (original game) =====
+  window.gameRenderers.coinflip = (state, container) => {
     const me = window.userById(state, window.currentUserId);
     const openBets = state.bets.filter((bet) => bet.status === "open");
     const results = state.bets.filter((bet) => bet.status === "settled").slice(-5).reverse();
 
-    panel.innerHTML = `
-      <div class="section-heading"><div><div class="eyebrow">VIRTUAL ONLY</div><h2>Coinflip chaos</h2></div></div>
-      <p class="muted">No cash value, redemption, or effect outside this simulated team ledger.</p>
+    container.innerHTML = `
       <form id="coinflip-form" class="coinflip-form">
         <label for="stake">Stake</label>
         <div class="form-row"><input id="stake" name="stake" type="number" min="1" step="1" value="25"><button class="primary" ${me ? "" : "disabled"}>Open coinflip challenge</button></div>
@@ -37,6 +37,62 @@
       </div>`;
   };
 
+  // ===== MAIN RENDERER =====
+  window.renderers.bet = (state) => {
+    const panel = document.getElementById("bet");
+    if (!panel) return;
+
+    const gameButtons = [
+      { id: "coinflip", label: "Coinflip" },
+      { id: "wheel", label: "Wheel Spin" },
+      { id: "balloon", label: "Balloon" },
+    ];
+
+    // Build sub-nav + content container
+    const navHtml = `<nav class="game-selector" aria-label="Game selection">
+      ${gameButtons.map((g) => `<button class="game-tab${selectedGame === g.id ? " active" : ""}" data-game="${g.id}" ${g.disabled ? "disabled" : ""}>${g.label}</button>`).join("")}
+    </nav>`;
+
+    // Only rebuild if sub-nav is missing (first render or tab switch)
+    if (!panel.querySelector(".game-selector")) {
+      panel.innerHTML = `${navHtml}<div id="game-content"></div>`;
+    } else {
+      // Update active state on existing nav buttons
+      panel.querySelectorAll("[data-game]").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.game === selectedGame);
+      });
+    }
+
+    const content = panel.querySelector("#game-content");
+    if (!content) return;
+
+    const renderer = window.gameRenderers[selectedGame];
+    if (renderer) {
+      renderer(state, content);
+    } else {
+      content.innerHTML = '<div class="empty">Coming soon...</div>';
+    }
+  };
+
+  // ===== EVENT HANDLERS =====
+
+  // Game selector clicks
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-game]");
+    if (!btn || btn.disabled) return;
+    const game = btn.dataset.game;
+    if (game === selectedGame) return;
+    selectedGame = game;
+    // Force full re-render by clearing the nav so it rebuilds
+    const panel = document.getElementById("bet");
+    if (panel) {
+      const nav = panel.querySelector(".game-selector");
+      if (nav) nav.remove();
+    }
+    if (window.exchangeState) window.renderers.bet(window.exchangeState);
+  });
+
+  // Coinflip form submit
   document.addEventListener("submit", async (event) => {
     if (event.target.id !== "coinflip-form") return;
     event.preventDefault();
@@ -52,6 +108,7 @@
     }
   });
 
+  // Coinflip accept
   document.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-bet-action='accept']");
     if (!button || button.disabled) return;

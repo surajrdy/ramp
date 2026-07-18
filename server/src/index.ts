@@ -3,18 +3,19 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { WebSocket, WebSocketServer } from "ws";
 import type {
+  BalloonGame,
   Bet,
   ExchangeState,
   Listing,
   TeamSuggestion,
   Trade,
   User,
+  WheelGame,
   WsMessage,
 } from "../../shared/types.js";
 import { createSeedState } from "./seed.js";
 
-const environmentPort = Number.parseInt(process.env.PORT ?? "", 10);
-const PORT = Number.isInteger(environmentPort) && environmentPort > 0 ? environmentPort : 4747;
+const PORT = Number(process.env.PORT) || 4747;
 const OVERAGE_RATE = 1.5;
 const INTERNAL_RATE = 0.7;
 
@@ -29,6 +30,8 @@ let state: ExchangeState = createSeedState();
 let nextListingId = state.listings.length + 1;
 let nextTradeId = 1;
 let nextBetId = 1;
+let nextWheelGameId = 1;
+let nextBalloonGameId = 1;
 
 function round(value: number, places = 2): number {
   const factor = 10 ** places;
@@ -478,7 +481,731 @@ app.post("/bets/:id/accept", (request, response) => {
   response.json(bet);
 });
 
-// ===== FEATURE 4: INTEGRATION + SPECTATOR SHELL (Suraj) =====
+// ===== FEATURE 3b: WHEEL SPIN (D + Liam) =====
+
+app.post("/games/wheel", (request, response) => {
+  if (!isRecord(request.body)) {
+    sendError(response, 400, "Request body must be an object");
+    return;
+  }
+
+  const { creatorId, wager } = request.body;
+  if (typeof creatorId !== "string") {
+    sendError(response, 400, "creatorId is required");
+    return;
+  }
+  if (!isPositiveInteger(wager)) {
+    sendError(response, 400, "wager must be a positive integer");
+    return;
+  }
+
+  const creator = userById(creatorId);
+  if (!creator) {
+    sendError(response, 404, "Creator not found");
+    return;
+  }
+  if (creator.balance < wager) {
+    sendError(response, 409, "Creator does not have enough spendable credits");
+    return;
+  }
+
+  creator.balance -= wager;
+  const game: WheelGame = {
+    id: `wheel-${nextWheelGameId++}`,
+    creatorId,
+    players: [{ userId: creatorId, wager }],
+    status: "waiting",
+    totalPot: wager,
+    ts: new Date().toISOString(),
+  };
+  state.wheelGames.push(game);
+  finishMutation(`${creator.name} created a wheel spin game with a ${wager}-credit wager.`);
+  response.status(201).json(game);
+});
+
+app.post("/games/wheel/:id/join", (request, response) => {
+  if (!isRecord(request.body)) {
+    sendError(response, 400, "Request body must be an object");
+    return;
+  }
+
+  const { userId, wager } = request.body;
+  if (typeof userId !== "string") {
+    sendError(response, 400, "userId is required");
+    return;
+  }
+  if (!isPositiveInteger(wager)) {
+    sendError(response, 400, "wager must be a positive integer");
+    return;
+  }
+
+  const game = state.wheelGames.find((g) => g.id === request.params.id);
+  if (!game) {
+    sendError(response, 404, "Wheel game not found");
+    return;
+  }
+  if (game.status !== "waiting") {
+    sendError(response, 409, "Game is no longer accepting players");
+    return;
+  }
+  if (game.players.length >= 6) {
+    sendError(response, 409, "Game is full (max 6 players)");
+    return;
+  }
+  if (game.players.some((p) => p.userId === userId)) {
+    sendError(response, 409, "You are already in this game");
+    return;
+  }
+
+  const user = userById(userId);
+  if (!user) {
+    sendError(response, 404, "User not found");
+    return;
+  }
+  if (user.balance < wager) {
+    sendError(response, 409, "You do not have enough spendable credits");
+    return;
+  }
+
+  user.balance -= wager;
+  game.players.push({ userId, wager });
+  game.totalPot += wager;
+  finishMutation(`${user.name} joined ${userById(game.creatorId)?.name ?? "unknown"}'s wheel spin with a ${wager}-credit wager.`);
+  response.json(game);
+});
+
+app.post("/games/wheel/:id/spin", (request, response) => {
+  if (!isRecord(request.body)) {
+    sendError(response, 400, "Request body must be an object");
+    return;
+  }
+
+  const { userId } = request.body;
+  if (typeof userId !== "string") {
+    sendError(response, 400, "userId is required");
+    return;
+  }
+
+  const game = state.wheelGames.find((g) => g.id === request.params.id);
+  if (!game) {
+    sendError(response, 404, "Wheel game not found");
+    return;
+  }
+  if (game.status !== "waiting") {
+    sendError(response, 409, "Game has already been spun");
+    return;
+  }
+  if (userId !== game.creatorId) {
+    sendError(response, 403, "Only the game creator can spin the wheel");
+    return;
+  }
+  if (game.players.length < 2) {
+    sendError(response, 400, "Need at least 2 players to spin");
+    return;
+  }
+
+  // Weighted random: probability proportional to wager
+  const roll = Math.random() * game.totalPot;
+  let cumulative = 0;
+  let winnerId = game.players[0].userId;
+  for (const player of game.players) {
+    cumulative += player.wager;
+    if (roll < cumulative) {
+      winnerId = player.userId;
+      break;
+    }
+  }
+
+  game.status = "settled";
+  game.winnerId = winnerId;
+  const winner = userById(winnerId);
+  if (!winner) {
+    throw new Error("Wheel winner disappeared");
+  }
+  winner.balance += game.totalPot;
+  finishMutation(`${winner.name} won ${game.totalPot} virtual credits on the wheel spin!`);
+  response.json(game);
+});
+
+// ===== PLAY PAGE (browser-based game client) =====
+
+app.get("/play", (_request, response) => {
+  const userOptions = state.users.map((u) => `<option value="${u.id}">${u.name} (${u.balance}cr)</option>`).join("");
+  response.type("html").send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Compute Exchange — Games</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #090b0d; color: #f2f4f5; --accent: #e8ff2b; --border: rgba(127,127,127,0.35); --surface: rgba(127,127,127,0.08); }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; }
+    main { width: min(460px, 100%); margin: 0 auto; }
+    h1 { color: var(--accent); font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 18px 0 10px; }
+    .eyebrow { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; }
+    .sub { color: #a5adb5; font-size: 12px; line-height: 1.45; margin: 0 0 16px; }
+    .muted { color: #a5adb5; font-size: 11px; }
+    button, input, select { font: inherit; }
+    button { border: 1px solid transparent; border-radius: 4px; padding: 8px 12px; color: #f2f4f5; background: #2a2d32; cursor: pointer; }
+    button:hover { background: #3a3d42; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.primary { color: #111; background: var(--accent); font-weight: 700; }
+    button.primary:hover { background: #d9ef29; }
+    button.danger { color: #fff; background: #c0392b; font-weight: 700; }
+    button.danger:hover { background: #e74c3c; }
+    input, select { border: 1px solid var(--border); border-radius: 4px; padding: 8px; color: #f2f4f5; background: #1e1e1e; }
+    input { width: 80px; }
+    select { width: 100%; margin-bottom: 12px; }
+    .form-row { display: flex; gap: 8px; align-items: center; }
+    .card-list { display: grid; gap: 8px; }
+    .card { display: grid; gap: 7px; padding: 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+    .card-title { font-weight: 750; }
+    .empty { padding: 16px; border: 1px dashed var(--border); border-radius: 6px; color: #a5adb5; text-align: center; }
+    .game-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 16px; }
+    .game-tabs button { border: 0; border-radius: 4px; padding: 8px; font-weight: 600; }
+    .game-tabs button.active { color: #111; background: var(--accent); font-weight: 800; }
+    .wheel-wrap { position: relative; display: flex; justify-content: center; margin: 12px 0; }
+    .wheel-pointer { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-top: 18px solid var(--accent); z-index: 2; filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
+    .players { display: grid; gap: 6px; margin: 8px 0; }
+    .player { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+    .result { text-align: center; padding: 16px; border: 2px solid var(--accent); border-radius: 8px; background: var(--surface); margin: 12px 0; }
+    .result .name { font-size: 20px; font-weight: 900; color: var(--accent); }
+    .result .amt { font-size: 14px; margin-top: 4px; }
+    .status { color: var(--accent); font-size: 11px; margin-bottom: 12px; }
+    .toast-area { position: fixed; bottom: 10px; right: 10px; left: 10px; display: grid; gap: 6px; pointer-events: none; z-index: 10; }
+    .toast { padding: 10px; border: 1px solid var(--accent); border-radius: 5px; background: #1e1e1e; box-shadow: 0 5px 20px rgba(0,0,0,.3); }
+    .toast.error { border-color: #f14c4c; }
+    .user-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+    .user-bar .bal { color: var(--accent); font-weight: 700; }
+    .balloon-area { text-align: center; padding: 20px 0; }
+    .balloon-emoji { font-size: 80px; transition: transform 0.3s ease; }
+    .balloon-emoji.pumping { animation: pump 0.4s ease; }
+    .balloon-emoji.popped { animation: explode 0.6s ease-out forwards; }
+    @keyframes pump { 0% { transform: scale(var(--bs)); } 30% { transform: scale(calc(var(--bs)*1.2)) rotate(5deg); } 60% { transform: scale(calc(var(--bs)*1.15)) rotate(-3deg); } 100% { transform: scale(var(--bs)); } }
+    @keyframes explode { 0% { transform: scale(var(--bs)); opacity:1; } 30% { transform: scale(calc(var(--bs)*1.5)); opacity:1; } 100% { transform: scale(calc(var(--bs)*2.5)); opacity:0; } }
+    .pop-text { font-size: 48px; font-weight: 900; color: #ff6b6b; animation: popText 0.8s ease-out; }
+    @keyframes popText { 0% { transform: scale(0.5); opacity:0; } 50% { transform: scale(1.3); opacity:1; } 100% { transform: scale(1); opacity:1; } }
+    .balloon-shake { animation: shake 0.15s ease infinite; }
+    @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+    .pump-bar { display: flex; gap: 4px; justify-content: center; margin: 12px 0; }
+    .pump-bar button { min-width: 44px; }
+    .credit-pools { display: flex; justify-content: space-between; gap: 12px; margin: 12px 0; }
+    .credit-pool { flex: 1; text-align: center; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+    .credit-pool .pool-name { font-size: 11px; color: #a5adb5; }
+    .credit-pool .pool-val { font-size: 20px; font-weight: 900; color: var(--accent); }
+    .credit-pool.opponent .pool-val { color: #ff6b6b; }
+    .pump-count { font-size: 12px; color: #a5adb5; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">COMPUTE EXCHANGE</div>
+    <h1>Degen Games</h1>
+    <p class="sub">Simulated credits only. No cash value, redemption, or external effect.</p>
+    <div class="status" id="status">connecting...</div>
+    <label class="muted">Playing as:</label>
+    <select id="user-select">${userOptions}</select>
+    <div id="user-bar" class="user-bar"></div>
+    <nav class="game-tabs">
+      <button class="active" data-gtab="wheel">Wheel Spin</button>
+      <button data-gtab="balloon">Balloon Pop</button>
+    </nav>
+    <div id="app"></div>
+    <div class="toast-area" id="toasts"></div>
+  </main>
+  <script>
+    const COLORS = ["#e8ff2b","#ff6b6b","#4ecdc4","#45b7d1","#f7dc6f","#bb8fce"];
+    const SPIN_MS = 4000;
+    let currentUserId = document.getElementById("user-select").value;
+    let exchangeState = null;
+    let activeAnim = null;
+    let knownSettled = new Set();
+    let currentGame = "wheel";
+
+    document.getElementById("user-select").addEventListener("change", (e) => { currentUserId = e.target.value; render(); });
+
+    // Game tab switching
+    document.querySelectorAll("[data-gtab]").forEach((btn) => btn.addEventListener("click", () => {
+      currentGame = btn.dataset.gtab;
+      document.querySelectorAll("[data-gtab]").forEach((b) => b.classList.toggle("active", b === btn));
+      activeAnim = null;
+      render();
+    }));
+
+    async function api(path, body) {
+      const res = await fetch(location.origin + path, {
+        method: body === undefined ? "GET" : "POST",
+        headers: body === undefined ? undefined : {"Content-Type":"application/json"},
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(data.error || "Request failed", "error"); throw new Error(data.error); }
+      return data;
+    }
+    function toast(text, kind = "event") {
+      const t = document.createElement("div"); t.className = "toast " + kind; t.textContent = text;
+      document.getElementById("toasts").append(t); setTimeout(() => t.remove(), 4000);
+    }
+    function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+    function userById(id) { return exchangeState?.users?.find((u) => u.id === id); }
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(proto + "//" + location.host);
+    ws.addEventListener("open", () => { document.getElementById("status").textContent = "live"; });
+    ws.addEventListener("close", () => { document.getElementById("status").textContent = "disconnected — refresh"; });
+    ws.addEventListener("message", (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "event") toast(msg.text);
+      if (msg.type === "state") { exchangeState = msg.state; render(); }
+    });
+
+    function render() {
+      if (!exchangeState) return;
+      const me = userById(currentUserId);
+      document.getElementById("user-bar").innerHTML = me
+        ? '<span>'+esc(me.name)+'</span><span class="bal">'+me.balance+' cr</span>'
+        : '<span class="muted">unknown user</span>';
+      const sel = document.getElementById("user-select");
+      exchangeState.users.forEach((u) => {
+        const opt = sel.querySelector('option[value="'+u.id+'"]');
+        if (opt) opt.textContent = u.name + " (" + u.balance + "cr)";
+      });
+      if (currentGame === "wheel") renderWheel();
+      else renderBalloon();
+    }
+
+    // ========== WHEEL SPIN ==========
+    function renderWheel() {
+      const games = exchangeState.wheelGames || [];
+      const waiting = games.filter((g) => g.status === "waiting");
+      const settled = games.filter((g) => g.status === "settled").slice(-5).reverse();
+      for (const g of games) {
+        if (g.status === "settled" && !knownSettled.has(g.id)) {
+          knownSettled.add(g.id);
+          if (g.players.some((p) => p.userId === currentUserId)) startSpin(g);
+        }
+      }
+      if (activeAnim && !activeAnim.done) return;
+      const myGame = waiting.find((g) => g.players.some((p) => p.userId === currentUserId));
+      const app = document.getElementById("app");
+      if (activeAnim && activeAnim.done) {
+        const g = games.find((x) => x.id === activeAnim.gameId);
+        if (g) { wResult(app, g); return; }
+      }
+      if (myGame) { wLobby(app, myGame); return; }
+      wBrowse(app, waiting, settled);
+    }
+    function wBrowse(el, waiting, settled) {
+      el.innerHTML = '<h2>Create a game</h2>'
+        +'<form id="create-form" class="form-row" style="margin-bottom:20px">'
+        +'<input name="wager" type="number" min="1" step="1" value="25">'
+        +'<button class="primary" type="submit">Create Game</button></form>'
+        +'<h2>Open games</h2><div class="card-list">'
+        +(waiting.length ? waiting.map((g) => {
+          const cr = userById(g.creatorId), names = g.players.map((p) => esc(userById(p.userId)?.name||"?")).join(", ");
+          const inG = g.players.some((p) => p.userId === currentUserId);
+          return '<article class="card"><div><div class="card-title">'+esc(cr?.name||"?")+"'s wheel &middot; "+g.totalPot+'cr pot</div>'
+            +'<div class="muted">'+g.players.length+'/6: '+names+'</div></div>'
+            +(inG?'<span class="muted">YOU\\'RE IN</span>':'<div class="form-row"><input type="number" min="1" step="1" value="25" class="join-wager" data-gid="'+g.id+'" style="width:70px"><button data-join="'+g.id+'">Join</button></div>')
+            +'</article>';
+        }).join(""):'<div class="empty">No open games. Create one!</div>')
+        +'</div><h2>Recent results</h2><div class="card-list">'
+        +(settled.length?settled.map((g) => {
+          const w=userById(g.winnerId);
+          return '<article class="card"><strong>'+esc(w?.name||"?")+" won "+g.totalPot+'cr</strong><span class="muted">'+g.players.length+' players</span></article>';
+        }).join(""):'<div class="empty">No results yet.</div>')+'</div>';
+    }
+    function wLobby(el, game) {
+      const isC = game.creatorId === currentUserId, can = isC && game.players.length >= 2;
+      el.innerHTML = '<div class="eyebrow">GAME LOBBY</div><h2>Wheel Spin &middot; '+game.totalPot+'cr pot</h2>'
+        +'<div class="wheel-wrap"><div class="wheel-pointer"></div><canvas id="wc" width="280" height="280"></canvas></div>'
+        +'<div class="players">'+game.players.map((p,i)=>{
+          const u=userById(p.userId), pct=game.totalPot>0?((p.wager/game.totalPot)*100).toFixed(1):0;
+          return '<div class="player"><span class="swatch" style="background:'+COLORS[i%COLORS.length]+'"></span><strong>'+esc(u?.name||"?")+'</strong><span class="muted">'+p.wager+'cr ('+pct+'%)</span></div>';
+        }).join("")+'</div>'
+        +'<div class="muted" style="text-align:center">'+game.players.length+'/6 players</div>'
+        +(isC?'<button class="primary" data-spin="'+game.id+'" style="width:100%;margin-top:8px" '+(can?"":"disabled")+'>'+(can?"SPIN THE WHEEL":"Need "+(2-game.players.length)+" more")+'</button>':'');
+      drawWheel(document.getElementById("wc"), game, 0);
+    }
+    function wResult(el, game) {
+      const w=userById(game.winnerId);
+      el.innerHTML = '<div class="eyebrow">RESULT</div>'
+        +'<div class="wheel-wrap"><div class="wheel-pointer"></div><canvas id="wc" width="280" height="280"></canvas></div>'
+        +'<div class="result"><div class="name">'+esc(w?.name||"?")+" wins!</div>"+'<div class="amt">'+game.totalPot+'cr collected</div></div>'
+        +'<div class="players">'+game.players.map((p,i)=>{
+          const u=userById(p.userId), win=p.userId===game.winnerId;
+          return '<div class="player" style="'+(win?"border:1px solid var(--accent);border-radius:4px;padding:4px 8px":"")+'"><span class="swatch" style="background:'+COLORS[i%COLORS.length]+'"></span><strong>'+esc(u?.name||"?")+(win?" ★":"")+'</strong><span class="muted">'+p.wager+'cr</span></div>';
+        }).join("")+'</div><button data-dismiss style="width:100%;margin-top:8px">Back to games</button>';
+      if (activeAnim) drawWheel(document.getElementById("wc"), game, activeAnim.targetAngle);
+      else drawWheel(document.getElementById("wc"), game, 0);
+    }
+    function drawWheel(c, game, rot) {
+      if (!c) return;
+      const ctx=c.getContext("2d"), cx=c.width/2, cy=c.height/2, r=Math.min(cx,cy)-4;
+      ctx.clearRect(0,0,c.width,c.height); ctx.save(); ctx.translate(cx,cy); ctx.rotate(rot);
+      let a=0;
+      for (let i=0;i<game.players.length;i++) {
+        const p=game.players[i], sl=(p.wager/game.totalPot)*Math.PI*2;
+        ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,r,a,a+sl); ctx.closePath();
+        ctx.fillStyle=COLORS[i%COLORS.length]; ctx.fill();
+        ctx.strokeStyle="rgba(0,0,0,0.3)"; ctx.lineWidth=2; ctx.stroke();
+        if (sl>0.25) {
+          const mid=a+sl/2, lr=r*0.6; ctx.save(); ctx.translate(Math.cos(mid)*lr,Math.sin(mid)*lr); ctx.rotate(mid+Math.PI/2);
+          ctx.fillStyle="#111"; ctx.font="bold 11px monospace"; ctx.textAlign="center";
+          ctx.fillText(userById(p.userId)?.name||"?",0,-6); ctx.font="10px monospace"; ctx.fillText(p.wager+"cr",0,7); ctx.restore();
+        }
+        a+=sl;
+      }
+      ctx.beginPath(); ctx.arc(0,0,14,0,Math.PI*2); ctx.fillStyle="#1e1e1e"; ctx.fill();
+      ctx.strokeStyle="rgba(255,255,255,0.2)"; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
+    }
+    function startSpin(game) {
+      let ws2=0, wsl=0;
+      for (const p of game.players) { const sl=(p.wager/game.totalPot)*Math.PI*2; if (p.userId===game.winnerId){wsl=sl;break;} ws2+=sl; }
+      const offset=(Math.random()-0.5)*wsl*0.6; // land randomly within winner slice
+      const base=-Math.PI/2-(ws2+wsl/2+offset), target=base+Math.PI*2*(5+Math.floor(Math.random()*3));
+      activeAnim={gameId:game.id, start:performance.now(), targetAngle:target, done:false};
+      const el=document.getElementById("app");
+      el.innerHTML='<div class="eyebrow">SPINNING</div><h2>Wheel Spin &middot; '+game.totalPot+'cr pot</h2>'
+        +'<div class="wheel-wrap"><div class="wheel-pointer"></div><canvas id="wc" width="280" height="280"></canvas></div>'
+        +'<div class="players">'+game.players.map((p,i)=>'<div class="player"><span class="swatch" style="background:'+COLORS[i%COLORS.length]+'"></span><strong>'+esc(userById(p.userId)?.name||"?")+'</strong><span class="muted">'+p.wager+'cr</span></div>').join("")+'</div>';
+      requestAnimationFrame(function tick(now) {
+        if (!activeAnim||activeAnim.gameId!==game.id) return;
+        const t=Math.min(1,(now-activeAnim.start)/SPIN_MS), eased=1-Math.pow(1-t,3);
+        drawWheel(document.getElementById("wc"), game, target*eased);
+        if (t<1) requestAnimationFrame(tick); else { activeAnim.done=true; render(); }
+      });
+    }
+
+    // ========== BALLOON POP ==========
+    let lastPumpCount = -1;
+    let balloonAnimTimeout = null;
+    let showingBalloonResult = null; // game ID of result being shown
+
+    function renderBalloon() {
+      const games = exchangeState.balloonGames || [];
+      const waiting = games.filter((g) => g.status === "waiting");
+      const playing = games.filter((g) => g.status === "playing");
+      const ended = games.filter((g) => g.status === "popped" || g.status === "drained");
+      const done = ended.slice(-5).reverse();
+      const app = document.getElementById("app");
+
+      // Am I in a game that just ended?
+      const myEndedGame = ended.find((g) =>
+        (g.player1 === currentUserId || g.player2 === currentUserId) && !showingBalloonResult);
+      if (myEndedGame) {
+        showingBalloonResult = myEndedGame.id;
+        bEnded(app, myEndedGame);
+        return;
+      }
+      if (showingBalloonResult) {
+        const g = games.find((x) => x.id === showingBalloonResult);
+        if (g) { bEnded(app, g); return; }
+      }
+
+      // Am I in an active game?
+      const myGame = playing.find((g) => g.player1 === currentUserId || g.player2 === currentUserId)
+        || waiting.find((g) => g.player1 === currentUserId);
+
+      if (myGame && myGame.status === "playing") { bPlaying(app, myGame); return; }
+      if (myGame && myGame.status === "waiting") { bWaiting(app, myGame); return; }
+      bBrowse(app, waiting, done);
+    }
+    function bBrowse(el, waiting, done) {
+      el.innerHTML = '<h2>Balloon Pop</h2>'
+        +'<p class="muted">Take turns pumping. More pumps = steal more credits, but risk popping! Pop = you lose everything.</p>'
+        +'<form id="balloon-create" class="form-row" style="margin-bottom:20px">'
+        +'<input name="stake" type="number" min="1" step="1" value="50">'
+        +'<button class="primary" type="submit">Create Game</button></form>'
+        +'<h2>Open challenges</h2><div class="card-list">'
+        +(waiting.length ? waiting.map((g) => {
+          const cr=userById(g.player1);
+          return '<article class="card"><div><div class="card-title">'+esc(cr?.name||"?")+'&apos;s balloon &middot; '+g.stake+'cr each</div>'
+            +'<div class="muted">Waiting for opponent</div></div>'
+            +(g.player1===currentUserId?'<span class="muted">YOUR GAME</span>':'<button data-bjoin="'+g.id+'">Accept</button>')
+            +'</article>';
+        }).join(""):'<div class="empty">No open balloon games.</div>')
+        +'</div><h2>Recent results</h2><div class="card-list">'
+        +(done.length?done.map((g) => {
+          const w=userById(g.winnerId), l=userById(g.poppedBy||"");
+          return '<article class="card"><strong>'+esc(w?.name||"?")+" won"+'</strong><span class="muted">'+(g.status==="popped"?esc(l?.name||"?")+" popped on pump #"+g.pumpCount:"drained")+'</span></article>';
+        }).join(""):'<div class="empty">No results yet.</div>')+'</div>';
+    }
+    function bWaiting(el, game) {
+      el.innerHTML = '<div class="eyebrow">YOUR GAME</div><h2>Balloon Pop &middot; '+game.stake+'cr each</h2>'
+        +'<div class="balloon-area"><div class="balloon-emoji">🎈</div></div>'
+        +'<div class="muted" style="text-align:center">Waiting for an opponent to accept...</div>';
+    }
+    function bPlaying(el, game) {
+      const isP1 = game.player1 === currentUserId;
+      const myTurn = game.currentTurn === currentUserId;
+      const p1 = userById(game.player1), p2 = userById(game.player2);
+      const myCredits = isP1 ? game.p1Credits : game.p2Credits;
+      const theirCredits = isP1 ? game.p2Credits : game.p1Credits;
+      const opponent = isP1 ? p2 : p1;
+      const scale = 1 + game.pumpCount * 0.12;
+      const risk = Math.min(90, Math.round(4*(game.pumpCount+1)));
+      // Detect new pump for animation
+      const justPumped = game.pumpCount !== lastPumpCount && lastPumpCount >= 0;
+      lastPumpCount = game.pumpCount;
+      const animClass = justPumped ? " pumping" : "";
+      const shakeClass = risk > 50 ? " balloon-shake" : "";
+
+      el.innerHTML = '<div class="eyebrow">'+(myTurn?"YOUR TURN":"OPPONENT\\'S TURN")+'</div>'
+        +'<h2>Balloon Pop &middot; Pump #'+game.pumpCount+'</h2>'
+        +'<div class="credit-pools">'
+        +'<div class="credit-pool"><div class="pool-name">You</div><div class="pool-val">'+myCredits+'cr</div></div>'
+        +'<div class="credit-pool opponent"><div class="pool-name">'+esc(opponent?.name||"?")+'</div><div class="pool-val">'+theirCredits+'cr</div></div>'
+        +'</div>'
+        +'<div class="balloon-area"><div class="balloon-emoji'+animClass+shakeClass+'" style="--bs:'+scale.toFixed(2)+';transform:scale('+scale.toFixed(2)+')">🎈</div></div>'
+        +'<div class="pump-count">Pump count: '+game.pumpCount+' · Pop risk: '+risk+'%</div>'
+        +(myTurn ? '<div class="muted" style="text-align:center;margin-bottom:8px">How many pumps? More = steal more, but riskier!</div>'
+          +'<div class="pump-bar">'
+          +'<button data-pump="1" data-pgame="'+game.id+'" class="primary">1</button>'
+          +'<button data-pump="2" data-pgame="'+game.id+'" class="primary">2</button>'
+          +'<button data-pump="3" data-pgame="'+game.id+'" class="primary">3</button>'
+          +'<button data-pump="4" data-pgame="'+game.id+'" class="danger">4</button>'
+          +'<button data-pump="5" data-pgame="'+game.id+'" class="danger">5</button>'
+          +'</div>' : '<div class="muted" style="text-align:center">Waiting for '+esc(opponent?.name||"?")+" to pump...</div>");
+      // Remove animation class after it plays
+      if (justPumped) { clearTimeout(balloonAnimTimeout); balloonAnimTimeout = setTimeout(()=>{ const b=document.querySelector(".balloon-emoji"); if(b) b.classList.remove("pumping"); },450); }
+    }
+    function bEnded(el, game) {
+      const w = userById(game.winnerId), loser = userById(game.poppedBy||"");
+      const isWinner = game.winnerId === currentUserId;
+      const scale = 1 + game.pumpCount * 0.12;
+      el.innerHTML = '<div class="eyebrow">GAME OVER</div>'
+        +'<h2>Balloon Pop Result</h2>'
+        +'<div class="balloon-area">'
+        +(game.status==="popped"
+          ? '<div class="balloon-emoji popped" style="--bs:'+scale.toFixed(2)+'">🎈</div><div class="pop-text">POP!</div>'
+          : '<div class="balloon-emoji" style="transform:scale(0.5);opacity:0.3">🎈</div><div class="pop-text" style="color:var(--accent)">DRAINED</div>')
+        +'</div>'
+        +'<div class="result"><div class="name">'+(isWinner?"You win!":esc(w?.name||"?")+" wins!")+'</div>'
+        +'<div class="amt">'+(game.stake*2)+'cr collected</div>'
+        +(game.status==="popped"?'<div class="muted" style="margin-top:8px">'+esc(loser?.name||"?")+" popped on pump #"+game.pumpCount+'</div>':'')
+        +'</div>'
+        +'<button data-bdismiss style="width:100%;margin-top:12px">Back to games</button>';
+    }
+
+    // ========== EVENT DELEGATION ==========
+    document.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector("button"); if (!btn) return;
+      btn.disabled = true;
+      try {
+        if (e.target.id === "create-form") {
+          await api("/games/wheel", { creatorId: currentUserId, wager: Number(new FormData(e.target).get("wager")) });
+        } else if (e.target.id === "balloon-create") {
+          await api("/games/balloon", { creatorId: currentUserId, stake: Number(new FormData(e.target).get("stake")) });
+        }
+      } catch {} finally { btn.disabled = false; }
+    });
+    document.addEventListener("click", async (e) => {
+      let btn;
+      if ((btn = e.target.closest("[data-join]"))) {
+        const gid=btn.dataset.join, input=document.querySelector('.join-wager[data-gid="'+gid+'"]');
+        btn.disabled=true;
+        try { await api("/games/wheel/"+encodeURIComponent(gid)+"/join",{userId:currentUserId,wager:input?Number(input.value):25}); } catch {} finally { btn.disabled=false; }
+      }
+      if ((btn = e.target.closest("[data-spin]"))) {
+        btn.disabled=true;
+        try { await api("/games/wheel/"+encodeURIComponent(btn.dataset.spin)+"/spin",{userId:currentUserId}); } catch {} finally { btn.disabled=false; }
+      }
+      if ((btn = e.target.closest("[data-dismiss]"))) { activeAnim=null; render(); }
+      if ((btn = e.target.closest("[data-bdismiss]"))) { showingBalloonResult=null; lastPumpCount=-1; render(); }
+      if ((btn = e.target.closest("[data-bjoin]"))) {
+        btn.disabled=true;
+        try { await api("/games/balloon/"+encodeURIComponent(btn.dataset.bjoin)+"/join",{userId:currentUserId}); } catch {} finally { btn.disabled=false; }
+      }
+      if ((btn = e.target.closest("[data-pump]"))) {
+        const pumps=Number(btn.dataset.pump), gid=btn.dataset.pgame;
+        document.querySelectorAll("[data-pump]").forEach((b)=>b.disabled=true);
+        try { await api("/games/balloon/"+encodeURIComponent(gid)+"/inflate",{userId:currentUserId,pumps}); } catch {} finally { document.querySelectorAll("[data-pump]").forEach((b)=>b.disabled=false); }
+      }
+    });
+  </script>
+</body>
+</html>`);
+});
+
+// ===== FEATURE 3c: BALLOON POP (Liam) =====
+
+app.post("/games/balloon", (request, response) => {
+  if (!isRecord(request.body)) {
+    sendError(response, 400, "Request body must be an object");
+    return;
+  }
+
+  const { creatorId, stake } = request.body;
+  if (typeof creatorId !== "string") {
+    sendError(response, 400, "creatorId is required");
+    return;
+  }
+  if (!isPositiveInteger(stake)) {
+    sendError(response, 400, "stake must be a positive integer");
+    return;
+  }
+
+  const creator = userById(creatorId);
+  if (!creator) {
+    sendError(response, 404, "Creator not found");
+    return;
+  }
+  if (creator.balance < stake) {
+    sendError(response, 409, "Not enough spendable credits");
+    return;
+  }
+
+  creator.balance -= stake;
+  const game: BalloonGame = {
+    id: `balloon-${nextBalloonGameId++}`,
+    creatorId,
+    player1: creatorId,
+    stake,
+    pumpCount: 0,
+    p1Credits: stake,
+    p2Credits: 0,
+    currentTurn: creatorId,
+    status: "waiting",
+    ts: new Date().toISOString(),
+  };
+  state.balloonGames.push(game);
+  finishMutation(`${creator.name} is looking for someone brave enough to play Balloon Pop for ${stake}cr!`);
+  response.status(201).json(game);
+});
+
+app.post("/games/balloon/:id/join", (request, response) => {
+  if (!isRecord(request.body) || typeof request.body.userId !== "string") {
+    sendError(response, 400, "userId is required");
+    return;
+  }
+
+  const game = state.balloonGames.find((g) => g.id === request.params.id);
+  if (!game) {
+    sendError(response, 404, "Balloon game not found");
+    return;
+  }
+  if (game.status !== "waiting") {
+    sendError(response, 409, "Game already started");
+    return;
+  }
+  if (game.player1 === request.body.userId) {
+    sendError(response, 409, "You cannot play against yourself");
+    return;
+  }
+
+  const joiner = userById(request.body.userId);
+  if (!joiner) {
+    sendError(response, 404, "User not found");
+    return;
+  }
+  if (joiner.balance < game.stake) {
+    sendError(response, 409, "Not enough spendable credits");
+    return;
+  }
+
+  joiner.balance -= game.stake;
+  game.player2 = joiner.id;
+  game.p2Credits = game.stake;
+  game.status = "playing";
+  game.currentTurn = game.player1;
+  const creator = userById(game.player1);
+  finishMutation(`${joiner.name} accepted ${creator?.name ?? "unknown"}'s Balloon Pop challenge! ${game.stake * 2}cr on the line.`);
+  response.json(game);
+});
+
+app.post("/games/balloon/:id/inflate", (request, response) => {
+  if (!isRecord(request.body) || typeof request.body.userId !== "string") {
+    sendError(response, 400, "userId is required");
+    return;
+  }
+  const pumps = typeof request.body.pumps === "number" ? request.body.pumps : 1;
+  if (!Number.isInteger(pumps) || pumps < 1 || pumps > 5) {
+    sendError(response, 400, "pumps must be 1-5");
+    return;
+  }
+
+  const game = state.balloonGames.find((g) => g.id === request.params.id);
+  if (!game) {
+    sendError(response, 404, "Balloon game not found");
+    return;
+  }
+  if (game.status !== "playing") {
+    sendError(response, 409, "Game is not in progress");
+    return;
+  }
+  if (game.currentTurn !== request.body.userId) {
+    sendError(response, 403, "It's not your turn");
+    return;
+  }
+
+  const isP1 = game.player1 === request.body.userId;
+  const pumper = userById(request.body.userId);
+  game.lastPumps = pumps;
+
+  // Roll each pump independently. Pop chance per pump = min(0.9, 0.04 * (totalPumps + 1))
+  let popped = false;
+  for (let i = 0; i < pumps; i++) {
+    game.pumpCount += 1;
+    const popChance = Math.min(0.9, 0.04 * game.pumpCount);
+    if (Math.random() < popChance) {
+      popped = true;
+      break;
+    }
+  }
+
+  if (popped) {
+    // Popper loses: all their remaining credits go to opponent
+    game.status = "popped";
+    game.poppedBy = request.body.userId;
+    game.winnerId = isP1 ? game.player2! : game.player1;
+    const winner = userById(game.winnerId);
+    if (!winner) throw new Error("Balloon winner disappeared");
+    // Winner gets everything remaining in both pools
+    const totalRemaining = game.p1Credits + game.p2Credits;
+    winner.balance += totalRemaining;
+    game.p1Credits = 0;
+    game.p2Credits = 0;
+    finishMutation(`POP! ${pumper?.name ?? "Unknown"} blew it on pump #${game.pumpCount}! ${winner.name} takes ${totalRemaining}cr!`);
+  } else {
+    // Survived! Steal credits from opponent proportional to pumps chosen
+    const reward = Math.ceil(game.stake / 10) * pumps;
+    if (isP1) {
+      const stolen = Math.min(reward, game.p2Credits);
+      game.p2Credits -= stolen;
+      game.p1Credits += stolen;
+    } else {
+      const stolen = Math.min(reward, game.p1Credits);
+      game.p1Credits -= stolen;
+      game.p2Credits += stolen;
+    }
+
+    // Check if opponent is drained
+    const opponentCredits = isP1 ? game.p2Credits : game.p1Credits;
+    if (opponentCredits <= 0) {
+      game.status = "drained";
+      game.winnerId = request.body.userId;
+      const winner = userById(request.body.userId);
+      if (!winner) throw new Error("Balloon winner disappeared");
+      const totalRemaining = game.p1Credits + game.p2Credits;
+      winner.balance += totalRemaining;
+      game.p1Credits = 0;
+      game.p2Credits = 0;
+      finishMutation(`${winner.name} drained all credits in Balloon Pop! Took ${totalRemaining}cr without a pop!`);
+    } else {
+      game.currentTurn = isP1 ? game.player2! : game.player1;
+      finishMutation(`${pumper?.name ?? "Unknown"} survived ${pumps} pump${pumps > 1 ? "s" : ""} and stole ${Math.ceil(game.stake / 10) * pumps}cr!`);
+    }
+  }
+
+  response.json(game);
+});
+
+// ===== FEATURE 4: SPECTATOR SHELL (A/E) =====
 
 app.get("/", (_request, response) => {
   response.redirect("/spectate");
