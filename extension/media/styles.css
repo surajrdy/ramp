@@ -799,6 +799,103 @@ button.lane.active {
 .crossroad-result span:not(.crossroad-emoji) { color: var(--text-muted); font-size: 10px; }
 .crossroad-emoji { flex: 0 0 auto; font-size: 24px; }
 
+.crossy-board {
+  position: relative;
+  min-height: 270px;
+  overflow: hidden;
+  border: 1px solid rgba(242, 234, 223, .14);
+  border-radius: 20px;
+  background: linear-gradient(#242b1d 0 15%, #34312d 15% 78%, #211f1c 78%);
+  box-shadow: var(--specular), var(--shadow-float);
+  isolation: isolate;
+}
+
+.crossy-finish {
+  position: absolute;
+  z-index: 3;
+  top: 10px;
+  right: 10px;
+  left: 10px;
+  height: 25px;
+  border: 1px solid rgba(242, 234, 223, .24);
+  border-radius: 8px;
+  color: #171411;
+  background: repeating-linear-gradient(90deg, #f2eadf 0 14px, #2b2824 14px 28px);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .14em;
+  text-align: center;
+}
+
+.crossy-finish span { display: inline-block; padding: 6px 8px; background: var(--accent); }
+
+.crossy-road { position: absolute; z-index: 1; top: 45px; right: 0; bottom: 65px; left: 0; }
+.crossy-lane { position: absolute; right: 0; left: 0; height: 33.333%; border-bottom: 1px dashed rgba(242, 234, 223, .18); }
+.crossy-lane::after { position: absolute; top: 50%; right: 0; left: 0; border-top: 2px dashed rgba(242, 234, 223, .14); content: ""; }
+.crossy-lane.lane-three { top: 0; }
+.crossy-lane.lane-two { top: 33.333%; }
+.crossy-lane.lane-one { top: 66.666%; }
+
+.crossy-car {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  font-size: 25px;
+  filter: drop-shadow(0 5px 4px rgba(0, 0, 0, .42));
+  animation: crossy-traffic 2.2s linear infinite;
+}
+
+.crossy-car:nth-child(2) { top: 25px; animation-direction: reverse; animation-duration: 2.8s; }
+.crossy-car.car-a { animation-delay: -.7s; }
+.crossy-car.car-b { animation-delay: -1.5s; animation-duration: 2.5s; }
+.crossy-car.car-c { animation-delay: -2.1s; animation-duration: 3s; }
+
+.crossy-player {
+  position: absolute;
+  z-index: 5;
+  bottom: 62px;
+  display: grid;
+  width: 42%;
+  justify-items: center;
+  transform-origin: center;
+}
+
+.crossy-player.player-one { left: 5%; }
+.crossy-player.player-two { right: 5%; }
+.crossy-avatar { font-size: 31px; filter: drop-shadow(0 5px 4px rgba(0, 0, 0, .5)); }
+.crossy-name { max-width: 100%; overflow: hidden; border: 1px solid var(--border); border-radius: 999px; padding: 2px 7px; color: var(--ink); background: rgba(13, 12, 11, .8); font-size: 9px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.crossy-board.waiting .crossy-avatar { animation: crossy-idle 700ms ease-in-out infinite alternate; }
+.crossy-board.running .crossy-player.winner { animation: crossy-winner 2.55s steps(7, end) forwards; }
+.crossy-board.running .crossy-player.loser { animation: crossy-loser 2.35s steps(5, end) forwards; }
+.crossy-board.finished .crossy-player.winner { transform: translateY(-174px); }
+.crossy-board.finished .crossy-player.loser { opacity: .55; transform: translateY(-88px) rotate(22deg); }
+
+.crossy-result-reveal {
+  position: absolute;
+  z-index: 7;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  display: grid;
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 7px 9px;
+  background: rgba(13, 12, 11, .88);
+  box-shadow: inset 0 1px 0 rgba(255, 250, 242, .08);
+  backdrop-filter: blur(12px);
+}
+
+.crossy-result-reveal strong { color: var(--accent); font-size: 10px; }
+.crossy-result-reveal span { color: var(--text-muted); font-size: 9px; }
+.crossy-board.running .crossy-result-reveal { opacity: 0; animation: crossy-reveal .25s ease 2.6s forwards; }
+
+@keyframes crossy-traffic { from { transform: translateX(-52px); } to { transform: translateX(calc(100vw + 52px)); } }
+@keyframes crossy-idle { to { transform: translateY(-4px); } }
+@keyframes crossy-winner { 0% { transform: translateY(0); } 100% { transform: translateY(-174px); } }
+@keyframes crossy-loser { 0% { transform: translateY(0); } 65% { opacity: 1; transform: translateY(-88px); } 100% { opacity: .55; transform: translateY(-88px) rotate(22deg); } }
+@keyframes crossy-reveal { to { opacity: 1; } }
+
 #bet .card-list { margin-top: 10px; }
 #bet .listing button { flex: 0 0 auto; }
 #bet .card > .muted { display: block; margin-top: 3px; }
