@@ -881,3 +881,15 @@ h2 {
   from { opacity: 0; transform: translateY(7px) scale(.99); }
   to { opacity: 1; transform: none; }
 }
+
+/* Team tab additions from Seb's forecasting branch. */
+.savings-sub { margin: -14px 0 18px; color: var(--text-muted); font-size: 11px; line-height: 1.45; }
+.savings-bump { animation: savings-bump 420ms ease-out; }
+@keyframes savings-bump {
+  0% { transform: scale(1); filter: brightness(1); }
+  40% { transform: scale(1.04); filter: brightness(1.15); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+.sparkline { display: block; width: 72px; height: 20px; flex-shrink: 0; }
+.usage-viz { display: flex; align-items: center; gap: 8px; }
+.usage-viz .usage-track { flex: 1; min-width: 0; }
