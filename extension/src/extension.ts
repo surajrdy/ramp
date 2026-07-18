@@ -54,25 +54,27 @@ class ComputeExchangeViewProvider implements vscode.WebviewViewProvider {
   <title>Compute Exchange</title>
 </head>
 <body>
-  <header class="app-header">
-    <div>
-      <div class="eyebrow">INTERNAL AI BUDGET</div>
-      <h1>Compute Exchange</h1>
+  <header class="app-chrome">
+    <div class="app-header">
+      <div>
+        <div class="eyebrow">INTERNAL AI BUDGET</div>
+        <h1>Compute Exchange</h1>
+      </div>
+      <span id="connection" class="connection status-pill" role="status" aria-live="polite">Connecting</span>
     </div>
-    <span id="connection" class="connection">connecting</span>
+    <p class="framing">Internal demo units · no cash-out</p>
+    <nav class="tabs segmented" role="tablist" aria-label="Exchange sections">
+      <button id="tab-market" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="market" data-tab="market">Market</button>
+      <button id="tab-team" class="tab" type="button" role="tab" aria-selected="false" aria-controls="team" data-tab="team" tabindex="-1">Team</button>
+      <button id="tab-bet" class="tab" type="button" role="tab" aria-selected="false" aria-controls="bet" data-tab="bet" tabindex="-1">Degen</button>
+    </nav>
   </header>
-  <p class="framing">Simulated allocation units only—no vendor credits, credentials, money, or cash-out.</p>
-  <nav class="tabs" aria-label="Exchange sections">
-    <button class="tab active" data-tab="market">Market</button>
-    <button class="tab" data-tab="team">Team</button>
-    <button class="tab" data-tab="bet">Degen</button>
-  </nav>
-  <main>
-    <section id="market" class="tab-panel active" aria-label="Market"></section>
-    <section id="team" class="tab-panel" aria-label="Team"></section>
-    <section id="bet" class="tab-panel" aria-label="Degen"></section>
+  <main class="app-main">
+    <section id="market" class="tab-panel active" role="tabpanel" aria-labelledby="tab-market" tabindex="0"><div class="empty">Connecting to the exchange…</div></section>
+    <section id="team" class="tab-panel" role="tabpanel" aria-labelledby="tab-team" tabindex="0" hidden></section>
+    <section id="bet" class="tab-panel" role="tabpanel" aria-labelledby="tab-bet" tabindex="0" hidden></section>
   </main>
-  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
   <script nonce="${nonce}">window.computeExchangeConfig = ${configJson};</script>
   <script nonce="${nonce}" src="${media("app.js")}"></script>
   <script nonce="${nonce}" src="${media("market.js")}"></script>

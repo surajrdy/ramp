@@ -1,6 +1,6 @@
 (() => {
   const config = window.computeExchangeConfig;
-  const runtime = { state: null, reconnectTimer: null };
+  const runtime = { state: null, reconnectTimer: null, currentTab: "market" };
   window.renderers = {};
   window.currentUserId = config.userId;
 
@@ -18,6 +18,7 @@
     if (!host) return;
     const item = document.createElement("div");
     item.className = `toast ${kind}`;
+    item.setAttribute("role", kind === "error" ? "alert" : "status");
     item.textContent = text;
     host.append(item);
     window.setTimeout(() => item.remove(), 4500);
@@ -57,15 +58,34 @@
     if (!indicator) return;
     indicator.textContent = text;
     indicator.classList.toggle("online", connected);
+    indicator.setAttribute("aria-label", `Server ${text}`);
   }
+
+  window.selectTab = (selected, focus = false) => {
+    const selectedButton = document.querySelector(`[data-tab="${selected}"]`);
+    if (!selectedButton) return;
+    runtime.currentTab = selected;
+    document.querySelectorAll("[data-tab]").forEach((button) => {
+      const active = button === selectedButton;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    });
+    document.querySelectorAll(".tab-panel").forEach((panel) => {
+      const active = panel.id === selected;
+      panel.classList.toggle("active", active);
+      panel.hidden = !active;
+    });
+    if (focus) selectedButton.focus();
+  };
 
   function connect() {
     window.clearTimeout(runtime.reconnectTimer);
     const wsUrl = new URL(config.serverUrl);
     wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
-    connectionStatus("connecting", false);
+    connectionStatus("Connecting", false);
     const socket = new WebSocket(wsUrl);
-    socket.addEventListener("open", () => connectionStatus("live", true));
+    socket.addEventListener("open", () => connectionStatus("Live", true));
     socket.addEventListener("message", (event) => {
       try {
         const message = JSON.parse(event.data);
@@ -81,20 +101,36 @@
       }
     });
     socket.addEventListener("close", () => {
-      connectionStatus("reconnecting", false);
+      connectionStatus("Reconnecting", false);
       runtime.reconnectTimer = window.setTimeout(connect, 1200);
     });
     socket.addEventListener("error", () => socket.close());
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-    document.querySelector(".tabs")?.addEventListener("click", (event) => {
+    const tablist = document.querySelector("[role='tablist']");
+    tablist?.addEventListener("click", (event) => {
       const button = event.target.closest("[data-tab]");
-      if (!button) return;
-      const selected = button.dataset.tab;
-      document.querySelectorAll("[data-tab]").forEach((candidate) => candidate.classList.toggle("active", candidate === button));
-      document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === selected));
+      if (button) window.selectTab(button.dataset.tab);
     });
+    tablist?.addEventListener("keydown", (event) => {
+      const tabs = [...tablist.querySelectorAll("[data-tab]")];
+      const current = tabs.indexOf(event.target.closest("[data-tab]"));
+      if (current < 0) return;
+      let next = current;
+      if (event.key === "ArrowLeft") next = (current - 1 + tabs.length) % tabs.length;
+      else if (event.key === "ArrowRight") next = (current + 1) % tabs.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      window.selectTab(tabs[next].dataset.tab, true);
+    });
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest("[data-nav-tab]");
+      if (link) window.selectTab(link.dataset.navTab, true);
+    });
+    window.selectTab(runtime.currentTab);
     connect();
   });
 })();

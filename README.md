@@ -18,7 +18,7 @@ npm install
 npx tsx src/index.ts
 ```
 
-The HTTP and WebSocket server listens at `http://localhost:4747`. Open `http://localhost:4747/spectate` for the live event feed.
+The HTTP and WebSocket server listens at `http://localhost:4747`. Set `PORT` to override it for deployment. Open `http://localhost:4747/spectate` for the live phone-friendly dashboard.
 
 In another terminal, compile the extension:
 
@@ -43,18 +43,21 @@ All clients receive the same full state after each mutation. An event message is
 
 Stage 0 is complete. See [`TEAM_HANDOFF.md`](./TEAM_HANDOFF.md) for the remaining feature tracks, merge order, acceptance gate, and demo script. The real usage-to-allocation loop is specified in [`USAGE_TRANSFER_SPEC.md`](./USAGE_TRANSFER_SPEC.md), and the cleaner phone-like interface direction is in [`UI_DIRECTION.md`](./UI_DIRECTION.md). The full copy/paste prompts remain in [`codex-prompt-pack.md`](./codex-prompt-pack.md).
 
-## Stage 0 API
+## Current API
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/state` | Full exchange state |
 | `POST` | `/listings` | Escrow and list surplus allocation |
+| `POST` | `/listings/:id/cancel` | Owner-only cancellation and escrow refund |
 | `POST` | `/trades` | Fill a listing and reallocate its credits |
 | `GET` | `/price-suggestion/:userId` | Forecast-derived amount and chargeback rate |
 | `POST` | `/suggestions/:id/accept` | Accept an internal team transfer |
+| `POST` | `/usage/simulate` | Record simulated workload demand and recompute the forecast |
 | `POST` | `/bets` | Escrow a virtual coinflip challenge |
 | `POST` | `/bets/:id/accept` | Accept and settle a coinflip |
-| `GET` | `/spectate` | Bare WebSocket-driven event feed |
+| `POST` | `/admin/reset` | Restore the deterministic demo seed |
+| `GET` | `/spectate` | Live WebSocket-driven spectator dashboard |
 
 Server errors use a `4xx` response with `{ "error": "..." }`.
 
