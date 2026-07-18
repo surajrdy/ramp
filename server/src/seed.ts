@@ -93,5 +93,5 @@ export function createSeedState(): ExchangeState {
     return { ...spec, createdAt, status: "open" };
   });
 
-  return { users, listings, trades: [], bets: [], suggestions: [] };
+  return { users, listings, trades: [], bets: [], wheelGames: [], balloonGames: [], suggestions: [] };
 }

@@ -37,6 +37,38 @@ export interface Bet {
   ts: string;
 }
 
+export interface WheelPlayer {
+  userId: string;
+  wager: number;
+}
+
+export interface WheelGame {
+  id: string;
+  creatorId: string;
+  players: WheelPlayer[];
+  status: "waiting" | "spinning" | "settled";
+  winnerId?: string;
+  totalPot: number;
+  ts: string;
+}
+
+export interface BalloonGame {
+  id: string;
+  creatorId: string;
+  player1: string;
+  player2?: string;
+  stake: number;
+  pumpCount: number;
+  p1Credits: number;
+  p2Credits: number;
+  currentTurn: string;
+  lastPumps?: number;
+  status: "waiting" | "playing" | "popped" | "drained";
+  poppedBy?: string;
+  winnerId?: string;
+  ts: string;
+}
+
 export interface TeamSuggestion {
   id: string;
   fromUserId: string;
@@ -51,6 +83,8 @@ export interface ExchangeState {
   listings: Listing[];
   trades: Trade[];
   bets: Bet[];
+  wheelGames: WheelGame[];
+  balloonGames: BalloonGame[];
   suggestions: TeamSuggestion[];
 }
 
