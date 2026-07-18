@@ -65,11 +65,7 @@
     </div>`;
   }
 
-  window.renderers.bet = (state) => {
-    if (typeof baseRenderer === "function") baseRenderer(state);
-    const panel = document.getElementById("bet");
-    if (!panel) return;
-
+  function renderCrossy(state, panel) {
     const me = window.userById(state, window.currentUserId);
     const opponents = state.users.filter((user) => user.id !== window.currentUserId);
     if (!opponents.some((user) => user.id === view.opponentId)) view.opponentId = opponents[0]?.id || "";
@@ -81,7 +77,7 @@
     const result = activeBet ? null : relevantResult(state);
     const selectedOpponent = window.userById(state, view.opponentId);
 
-    panel.insertAdjacentHTML("beforeend", `
+    panel.innerHTML = `
       <section class="crossroad stack" aria-labelledby="crossroad-title">
         <div class="section-heading">
           <div><div class="eyebrow">1V1 BRAINROT · VIRTUAL ONLY</div><h2 id="crossroad-title">Ohio Crossroads</h2></div>
@@ -109,7 +105,26 @@
           return `<button class="secondary full-width" data-crossroad-action="accept" data-bet-id="${window.escapeHtml(bet.id)}" ${view.pending ? "disabled" : ""}>Face ${window.escapeHtml(challenger?.name || "a teammate")} for ${bet.stake} credits</button>`;
         }).join("")}</div>` : ""}
 
-      </section>`);
+      </section>`;
+  }
+
+  window.gameRenderers = window.gameRenderers || {};
+  window.gameRenderers.crossy = renderCrossy;
+
+  window.renderers.bet = (state) => {
+    if (typeof baseRenderer === "function") baseRenderer(state);
+    const panel = document.getElementById("bet");
+    if (!panel) return;
+    if (typeof baseRenderer !== "function") renderCrossy(state, panel);
+
+    const nav = panel.querySelector(".game-selector");
+    if (!nav) return;
+    let button = nav.querySelector("[data-game='crossy']");
+    if (!button) {
+      nav.insertAdjacentHTML("beforeend", '<button class="game-tab" data-game="crossy">Crossy 1v1</button>');
+      button = nav.querySelector("[data-game='crossy']");
+    }
+    if (button) button.classList.toggle("active", Boolean(panel.querySelector("#game-content .crossroad")));
   };
 
   document.addEventListener("input", (event) => {
