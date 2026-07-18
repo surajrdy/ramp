@@ -13,7 +13,8 @@ import type {
 } from "../../shared/types.js";
 import { createSeedState } from "./seed.js";
 
-const PORT = 4747;
+const environmentPort = Number.parseInt(process.env.PORT ?? "", 10);
+const PORT = Number.isInteger(environmentPort) && environmentPort > 0 ? environmentPort : 4747;
 const OVERAGE_RATE = 1.5;
 const INTERNAL_RATE = 0.7;
 
@@ -140,6 +141,38 @@ app.post("/listings", (request, response) => {
   state.listings.push(listing);
   finishMutation(`${seller.name} listed ${amount} internal credits at ${listing.pricePerCredit.toFixed(2)}x chargeback.`);
   response.status(201).json(listing);
+});
+
+app.post("/listings/:id/cancel", (request, response) => {
+  if (!isRecord(request.body) || typeof request.body.sellerId !== "string") {
+    sendError(response, 400, "sellerId is required");
+    return;
+  }
+
+  const listing = state.listings.find((candidate) => candidate.id === request.params.id);
+  if (!listing) {
+    sendError(response, 404, "Listing not found");
+    return;
+  }
+  if (listing.status !== "open") {
+    sendError(response, 409, "Only open listings can be cancelled");
+    return;
+  }
+  if (listing.sellerId !== request.body.sellerId) {
+    sendError(response, 403, "Only the listing owner can cancel it");
+    return;
+  }
+
+  const seller = userById(listing.sellerId);
+  if (!seller) {
+    sendError(response, 404, "Seller not found");
+    return;
+  }
+
+  listing.status = "cancelled";
+  seller.balance += listing.amount;
+  finishMutation(`${seller.name} cancelled a ${listing.amount}-credit listing; escrow was returned.`);
+  response.json(listing);
 });
 
 app.post("/trades", (request, response) => {
@@ -383,52 +416,252 @@ app.post("/bets/:id/accept", (request, response) => {
 
 // ===== FEATURE 4: INTEGRATION + SPECTATOR SHELL (Suraj) =====
 
+app.post("/usage/simulate", (request, response) => {
+  if (!isRecord(request.body)) {
+    sendError(response, 400, "Request body must be an object");
+    return;
+  }
+
+  const { userId, credits } = request.body;
+  if (typeof userId !== "string") {
+    sendError(response, 400, "userId is required");
+    return;
+  }
+  if (!isPositiveInteger(credits)) {
+    sendError(response, 400, "credits must be a positive integer");
+    return;
+  }
+
+  const user = userById(userId);
+  if (!user) {
+    sendError(response, 404, "User not found");
+    return;
+  }
+  if (credits > user.weeklyQuota) {
+    sendError(response, 400, "credits cannot exceed the user's weekly quota");
+    return;
+  }
+  if (user.usageHistory.length === 0) {
+    sendError(response, 409, "User has no usage history to update");
+    return;
+  }
+
+  const newestSampleIndex = user.usageHistory.length - 1;
+  user.usageHistory[newestSampleIndex] += credits;
+  finishMutation(`${user.name} ran a simulated ${credits}-credit workload; demand forecast updated.`);
+  response.json({
+    userId: user.id,
+    addedUsageCredits: credits,
+    currentDailyUsage: user.usageHistory[newestSampleIndex],
+    predictedUsagePct: user.predictedUsagePct,
+  });
+});
+
+app.post("/admin/reset", (_request, response) => {
+  state = createSeedState();
+  nextListingId = state.listings.length + 1;
+  nextTradeId = 1;
+  nextBetId = 1;
+  finishMutation("Demo reset to the seeded organization state.");
+  response.json({ reset: true, state });
+});
+
 app.get("/spectate", (_request, response) => {
   response.type("html").send(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Compute Exchange Live</title>
   <style>
-    :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #090b0d; color: #f2f4f5; }
-    body { margin: 0; padding: 32px; }
-    main { width: min(900px, 100%); margin: 0 auto; }
-    h1 { color: #e8ff2b; margin-bottom: 8px; }
-    .sub { color: #a5adb5; max-width: 760px; line-height: 1.5; }
-    #status { margin: 24px 0 12px; color: #e8ff2b; }
-    #feed { display: grid; gap: 10px; }
-    .event { border: 1px solid #31373d; border-left: 4px solid #e8ff2b; border-radius: 6px; padding: 14px; background: #12161a; }
-    .time { color: #7f8992; font-size: 12px; margin-top: 6px; }
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+      background: #080a0c;
+      color: #f7f8f8;
+      --accent: #e8ff2b;
+      --panel: rgba(255, 255, 255, 0.065);
+      --line: rgba(255, 255, 255, 0.1);
+      --muted: #9ba3aa;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 80% -10%, #26300c 0, transparent 32rem), #080a0c; }
+    main { width: min(1080px, 100%); min-width: 0; margin: 0 auto; padding: 18px 16px 44px; overflow: hidden; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .brand { font-size: 13px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    #status { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+    #status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #ffb340; box-shadow: 0 0 14px currentColor; }
+    #status.live { color: var(--accent); }
+    #status.live::before { background: var(--accent); }
+    .hero { padding: 48px 0 26px; }
+    h1 { max-width: 760px; margin: 0; font-size: clamp(38px, 9vw, 76px); line-height: .94; letter-spacing: -.055em; }
+    .hero p { max-width: 650px; margin: 20px 0 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
+    .metrics { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .metric, .panel { border: 1px solid var(--line); border-radius: 20px; background: var(--panel); backdrop-filter: blur(18px); }
+    .metric { min-width: 0; min-height: 112px; padding: 17px; overflow: hidden; }
+    .metric span { display: block; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .metric strong { display: block; margin-top: 12px; overflow-wrap: anywhere; font-size: clamp(22px, 7vw, 38px); letter-spacing: -.04em; }
+    .metric.accent strong { color: var(--accent); }
+    .layout { display: grid; gap: 12px; margin-top: 12px; }
+    .panel { padding: 18px; overflow: hidden; }
+    .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+    .panel-head > * { min-width: 0; }
+    h2 { margin: 0; font-size: 17px; letter-spacing: -.02em; }
+    .eyebrow { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-align: right; text-transform: uppercase; }
+    #feed, #members, #offers { display: grid; gap: 9px; }
+    .event, .member, .offer, .empty { padding: 13px 14px; border-radius: 14px; background: rgba(0, 0, 0, .25); }
+    .event { border-left: 3px solid var(--accent); font-size: 14px; line-height: 1.35; }
+    .event time, .empty { color: var(--muted); font-size: 11px; }
+    .event time { display: block; margin-top: 6px; }
+    .member-top, .offer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .member-name, .offer strong { font-size: 13px; font-weight: 700; }
+    .member-values, .offer span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .bar { height: 5px; margin-top: 10px; overflow: hidden; border-radius: 99px; background: rgba(255, 255, 255, .09); }
+    .bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+    .boundary { margin: 18px 2px 0; color: #697078; font-size: 11px; line-height: 1.45; }
+    @media (min-width: 760px) {
+      main { padding: 26px 28px 64px; }
+      .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .layout { grid-template-columns: 1.1fr .9fr; }
+      .activity { grid-row: span 2; }
+      .metric { min-height: 128px; padding: 20px; }
+      .panel { padding: 21px; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .event { animation: enter .22s ease-out; }
+      @keyframes enter { from { opacity: 0; transform: translateY(-5px); } }
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>COMPUTE EXCHANGE // LIVE</h1>
-    <p class="sub">One team reallocating its own simulated AI budget. No vendor credits, credentials, money, or cash-out move through this demo.</p>
-    <div id="status">connecting…</div>
-    <div id="feed" aria-live="polite"></div>
+    <header>
+      <div class="brand">Compute Exchange</div>
+      <div id="status">Connecting</div>
+    </header>
+    <section class="hero">
+      <h1>AI budget,<br>moving live.</h1>
+      <p>Watch one organization turn idle allocation into usable capacity. Workloads change demand, then the team moves conserved internal credits where they are needed.</p>
+    </section>
+    <section class="metrics" aria-label="Live exchange summary">
+      <div class="metric"><span>Team allocation</span><strong id="allocation">—</strong></div>
+      <div class="metric"><span>Open offers</span><strong id="open-offers">—</strong></div>
+      <div class="metric"><span>Moves completed</span><strong id="moves">—</strong></div>
+      <div class="metric accent"><span>Potential savings</span><strong id="savings">—</strong></div>
+    </section>
+    <section class="layout">
+      <section class="panel activity">
+        <div class="panel-head"><h2>Live activity</h2><span class="eyebrow">Event → state</span></div>
+        <div id="feed" aria-live="polite"><div class="empty">Waiting for the next move…</div></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Team demand</h2><span class="eyebrow">7-day forecast</span></div>
+        <div id="members"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Allocation market</h2><span class="eyebrow">Internal only</span></div>
+        <div id="offers"></div>
+      </section>
+    </section>
+    <p class="boundary">Demo units have no cash value. Compute Exchange never transfers vendor credits, accounts, or credentials.</p>
   </main>
   <script>
-    const status = document.getElementById("status");
-    const feed = document.getElementById("feed");
-    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(protocol + "//" + location.host);
-    socket.addEventListener("open", () => { status.textContent = "live"; });
-    socket.addEventListener("close", () => { status.textContent = "disconnected — refresh to reconnect"; });
-    socket.addEventListener("message", (event) => {
-      const message = JSON.parse(event.data);
-      if (message.type !== "event") return;
-      const item = document.createElement("div");
+    const elements = {
+      status: document.getElementById("status"),
+      allocation: document.getElementById("allocation"),
+      offers: document.getElementById("open-offers"),
+      moves: document.getElementById("moves"),
+      savings: document.getElementById("savings"),
+      feed: document.getElementById("feed"),
+      members: document.getElementById("members"),
+      offerList: document.getElementById("offers"),
+    };
+    const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+    let reconnectTimer;
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "\\\"": "&quot;", "'": "&#39;",
+      })[character]);
+    }
+
+    function renderState(state) {
+      const openListings = state.listings.filter((listing) => listing.status === "open");
+      const openBets = state.bets.filter((bet) => bet.status === "open");
+      const allocated = state.users.reduce((sum, user) => sum + user.balance, 0)
+        + openListings.reduce((sum, listing) => sum + listing.amount, 0)
+        + openBets.reduce((sum, bet) => sum + bet.stake, 0);
+      const savings = state.suggestions.reduce((sum, suggestion) => sum + suggestion.projectedSavings, 0);
+      elements.allocation.textContent = number.format(allocated) + "cr";
+      elements.offers.textContent = String(openListings.length);
+      elements.moves.textContent = String(state.trades.length);
+      elements.savings.textContent = "$" + number.format(savings) + "/wk";
+
+      elements.members.innerHTML = state.users
+        .slice()
+        .sort((left, right) => right.predictedUsagePct - left.predictedUsagePct)
+        .slice(0, 6)
+        .map((user) => {
+          const forecast = Math.round(user.predictedUsagePct * 100);
+          return '<article class="member"><div class="member-top"><span class="member-name">'
+            + escapeHtml(user.name) + '</span><span class="member-values">' + number.format(user.balance)
+            + 'cr · ' + forecast + '%</span></div><div class="bar"><i style="width:'
+            + Math.min(100, Math.max(0, forecast)) + '%"></i></div></article>';
+        })
+        .join("");
+
+      const names = new Map(state.users.map((user) => [user.id, user.name]));
+      elements.offerList.innerHTML = openListings.length === 0
+        ? '<div class="empty">No allocation is listed right now.</div>'
+        : openListings.slice(0, 5).map((listing) => '<article class="offer"><div><strong>'
+          + number.format(listing.amount) + 'cr</strong><br><span>from '
+          + escapeHtml(names.get(listing.sellerId) || listing.sellerId)
+          + '</span></div><span>' + Number(listing.pricePerCredit).toFixed(2) + '× rate</span></article>').join("");
+    }
+
+    function addEvent(text) {
+      const placeholder = elements.feed.querySelector(".empty");
+      if (placeholder) placeholder.remove();
+      const item = document.createElement("article");
       item.className = "event";
-      const text = document.createElement("div");
-      text.textContent = message.text;
-      const time = document.createElement("div");
-      time.className = "time";
-      time.textContent = new Date().toLocaleTimeString();
-      item.append(text, time);
-      feed.prepend(item);
-    });
+      const copy = document.createElement("div");
+      copy.textContent = text;
+      const timestamp = document.createElement("time");
+      timestamp.textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+      item.append(copy, timestamp);
+      elements.feed.prepend(item);
+      while (elements.feed.children.length > 12) elements.feed.lastElementChild.remove();
+    }
+
+    function connect() {
+      clearTimeout(reconnectTimer);
+      elements.status.textContent = "Connecting";
+      elements.status.classList.remove("live");
+      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(protocol + "//" + location.host);
+      socket.addEventListener("open", () => {
+        elements.status.textContent = "Live";
+        elements.status.classList.add("live");
+      });
+      socket.addEventListener("close", () => {
+        elements.status.textContent = "Reconnecting";
+        elements.status.classList.remove("live");
+        reconnectTimer = setTimeout(connect, 1200);
+      });
+      socket.addEventListener("error", () => socket.close());
+      socket.addEventListener("message", (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === "state") renderState(message.state);
+          if (message.type === "event") addEvent(message.text);
+        } catch (_error) {
+          elements.status.textContent = "Invalid update";
+          elements.status.classList.remove("live");
+        }
+      });
+    }
+
+    connect();
   </script>
 </body>
 </html>`);
