@@ -212,19 +212,19 @@ The recency weight is the sample's position in the **full 14-day `usageHistory` 
 
 Implement as a single pass: iterate `usageHistory` once, and for each element route `(Math.max(0, value), index + 1)` into either the weekday or weekend bucket. Then, per bucket, `dailyAvg = sum(value * weight) / sum(weight)`. Apply the B.3 empty-bucket fallback, then `projectedWeekly = 5 * weekdayDaily + 2 * weekendDaily`.
 
-### C2. The seed produces exactly ONE suggestion — this is expected (refines C/F)
+### C2. The fresh seed produces TWO suggestions (corrected — accounts for escrow)
 
-With this seed and the weekday-aware forecast, **u7/Burnzilla is the only deficit user (> 0.85)**. Greedy pairs it with the lowest-surplus source (u6/Credit Hoarder), consumes u7's entire need in one match, and stops. Verified across all 7 possible run days: u6 stays ≈ 0.13 (surplus), u7 stays 0.87–0.91 (deficit), and no borderline user (u2 0.72, u9 0.65, u10 0.66) ever crosses a threshold. So the suggestion set is deterministic regardless of demo date.
+**Correction:** an earlier draft of this note said the seed yields one suggestion (504cr / $403.20). That was computed **ignoring seed listing escrow**. `createSeedState()` subtracts each seed listing's amount from the seller's balance (u6 −80, u3 −40, u1 −30), and `buildSuggestions` reads the post-escrow `user.balance`. With correct balances, u6's surplus (430) is **less** than u7's need (504), so the matcher pulls in a second source.
 
-Concrete expected values on fresh seed:
+Actual fresh-seed output (verified across all 7 possible run days — deterministic; u7/Burnzilla is the only standing deficit, u6 stays ≈ 0.13, no borderline user crosses a threshold):
 
-- One suggestion: `Credit Hoarder → Burnzilla`, `amount = 504`, `projectedSavings = 403.20`.
-- Hero on fresh seed: realized `$0.00`, on-table `$403.20/wk`.
-- After one Accept: u7's `need` → 0, so the card **disappears**, on-table → `$0.00`, realized → `$403.20`, one bump.
+- `Credit Hoarder → Burnzilla` — `amount = 430`, `projectedSavings = 344.00`
+- `D → Burnzilla` — `amount = 74`, `projectedSavings = 59.20`
+- On-table headline total: `$403.20/wk` (u7's full need of 504cr met: 430 + 74).
 
-Consequence: the "accepting again re-adds" clause (E/F.4) is **latent** — it will not fire on this seed because `need` reaches 0 after the single full transfer. Keep the clause implemented (do not special-case it away); it is simply not exercised here.
+So "Recommended moves" shows **two** cards on fresh seed, not one. After accepting both, u7's `need` → 0 and the list clears.
 
-**Do not** widen the suggestion list by editing seed personalities — that file is shared demo state and out of Seb's lane (Seb may only add `realizedSavings: 0` to it). A richer multi-card list is a **proposal to the seed owner**, tracked in C10 below, not a change to make on `feat/team`.
+**Do not** widen or narrow the suggestion list by editing seed personalities — that file is shared demo state and out of Seb's lane (Seb may only touch `seed.ts` as coordinated; see C12). A different suggestion mix is a **proposal to the seed owner**, tracked in C10, not a change to make on `feat/team`.
 
 ### C3. Weekday classification is calendar-dependent but demo-safe (confirms A)
 
@@ -269,7 +269,48 @@ const value = Math.round(bucketDailyAvg * jitter);    // integers, matching seed
 
 ### C10. Proposal to the seed owner (NOT a `feat/team` change)
 
-Optional, hand off separately: to make "Recommended moves" a multi-card list, add a **second** deficit user in `seed.ts` (a user whose weekday-aware forecast lands > 85% of quota with a below-forecast balance), or reduce u6's balance so it cannot cover u7's need alone (forcing a second surplus source into the match). This is a shared-seed change and must be made by the seed owner, not on `feat/team`.
+Optional, hand off separately: to change the "Recommended moves" mix, adjust deficit/surplus users in `seed.ts`. This is a shared-seed change and must be made by the seed owner, not on `feat/team`.
+
+---
+
+## Post-merge reconciliation (after merging `origin/main` "align team ownership")
+
+`main` gained an ownership realignment plus `UI_DIRECTION.md` and `USAGE_TRANSFER_SPEC.md`. Two of those rules **override this prompt**. The following decisions are law and supersede the conflicting parts of A–J.
+
+### C11. CSS: keep editing `styles.css` directly (override of new sole-editor rule) — DECIDED
+
+`UI_DIRECTION.md` names Suraj the sole `styles.css` editor and asks Team to request `team-*` classes. **Decision: Seb keeps section H as written and edits `styles.css` directly** (add only `.sparkline`, `.savings-sub` — see C12 for `.savings-bump` — and any `@keyframes`).
+
+- This is a deliberate override; coordinate with Suraj so the UI branch expects it.
+- Mitigate the merge-conflict risk: **append** the three rules at the end of `styles.css`, do not reflow or restyle existing shell/Market/Degen rules, so the diff is additive and conflict-resolution is trivial.
+
+### C12. `realizedSavings` is DROPPED — animate the on-table number instead (override) — DECIDED
+
+Updated `codex-prompt-pack.md` (STAGE 1b, item 3) says a separate realized-savings history needs a coordinated `shared/types.ts` change and is **not required**. **Decision: drop `realizedSavings` entirely.** This **supersedes**:
+
+- **Goal item 3** ("Cumulative realized savings headline") → becomes: keep the single server-derived **on-table** headline and animate it when it changes.
+- **File table rows** for `shared/types.ts` and `seed.ts` → **no change to either file.** Do not add `realizedSavings` to `ExchangeState` or to `createSeedState()`. `shared/types.ts` stays untouched (PR-only contract).
+- **Section E** (realizedSavings contract, accumulate-on-accept, new accept event text) → **void.** The `POST /suggestions/:id/accept` handler keeps its Stage 0 behavior: validate → transfer → `finishMutation` with the **existing** Stage 0 event text (no "Realized team savings" clause). Do not accumulate anything.
+- **Section F** (hero copy with `realized` + `.savings-sub` "still on the table") → replaced by: a single hero showing the on-table total = `sum(suggestions[].projectedSavings)`, using existing `.savings` styling. Keep `.savings-sub` available if you want a one-line caption, but there is no separate realized figure.
+- **C6** (accept mutation ordering) → **void** (no realized field to order around).
+
+**Bump animation, revised (replaces F's realized-increase rule):** the on-table number changes on two occasions — it **rises** when a `/usage/simulate` burst surfaces a new deficit/suggestion (the key demo beat), and **falls** when a suggestion is accepted. Animate on **any** change:
+
+- Module-level `let lastOnTable = null` inside the IIFE.
+- On render, compute `onTable = sum(suggestions[].projectedSavings)`.
+- If `lastOnTable !== null && Math.abs(onTable - lastOnTable) > 0.005`, add `.savings-bump` to the hero (include it conditionally in the template string), then remove after ~450ms (`setTimeout` / `animationend`).
+- First paint after load: no bump; just set `lastOnTable = onTable`.
+- Always set `lastOnTable = onTable` at the end of the render path.
+
+`.savings-bump` CSS (section H) is still added by Seb per C11.
+
+### C13. `/usage/simulate` couples to Seb's matcher — verified, but fragile (coordinate with Suraj)
+
+Suraj's new `POST /usage/simulate` (owned by Suraj) adds demand to a user's newest `usageHistory` sample and calls the existing recompute path — i.e. it drives **Seb's** forecast + matcher. `USAGE_TRANSFER_SPEC.md` promises the seeded 300cr burst on `u3`/D yields a "Credit Hoarder → D, ~200cr, ~$160/wk" recommendation.
+
+Verified against the weekday-aware matcher: the burst pushes u3 to ≈ 0.899 predicted and the matcher emits exactly `u6 → u3: 200cr, $160.00`. **But** this holds only because u3's post-burst forecast (0.899) fractionally outranks Burnzilla's standing deficit (0.891) — greedy sorts deficits descending, so u3 must be matched first to receive u6's surplus. The margin is ~0.008. If a forecast/run-day shift flips that ordering, u6 is consumed by Burnzilla first and D's headline recommendation changes.
+
+Action: **do not change the matching thresholds or `projectedWeeklyUsage` in a way that lowers u3-post-burst below u7**, and flag this coupling to Suraj so the demo seed/burst size stays on the safe side of the ordering.
 
 ---
 
