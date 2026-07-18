@@ -12,6 +12,8 @@
   const percent = (value) => `${Math.round(Math.max(0, value || 0) * 100)}%`;
   const forecastCredits = (user) => Math.round(user.weeklyQuota * user.predictedUsagePct);
   const discount = (price) => Math.max(0, Math.round((1 - Number(price || 0)) * 100));
+  const settlementCredits = (amount, price) => Math.round(Number(amount || 0) * Number(price || 0) * 100) / 100;
+  const formatCredits = (value) => Number.isInteger(value) ? String(value) : value.toFixed(2);
   const outlook = (user) => {
     if (user.predictedUsagePct < 0.6) return "You are likely to have credits left to share.";
     if (user.predictedUsagePct > 0.85) return "You may need more credits for this week’s workload.";
@@ -38,6 +40,7 @@
     const draft = view.draft || { amount: "", pricePerCredit: "" };
     const submitting = view.pending.has("list");
     const amount = Number(draft.amount);
+    const returnCredits = settlementCredits(amount, draft.pricePerCredit);
     return `<form id="market-listing-form" class="sheet stack" aria-labelledby="listing-sheet-title">
       <div class="card-row sheet-heading">
         <div>
@@ -55,7 +58,8 @@
           </div>
           <p class="hint">1.00 is the standard team rate. A lower rate gives the teammate receiving your credits a discount.</p>
           ${suggested ? `<p class="hint">Based on your usage outlook: share ${suggested.amount} credits with a ${discount(suggested.pricePerCredit)}% discount.</p>` : ""}
-          <button class="primary full-width" type="submit" ${submitting || !me || amount < 1 ? "disabled" : ""}>${submitting ? "Publishing offer…" : amount > 0 ? `Offer ${amount} credits` : "Publish offer"}</button>`}
+          ${returnCredits > 0 ? `<div class="benefit-note"><strong>You receive ${formatCredits(returnCredits)} flexible credits when claimed</strong><span>Think of this as an internal IOU you can carry toward next week’s budget. It has no cash value.</span></div>` : ""}
+          <button class="primary full-width" type="submit" ${submitting || !me || amount < 1 ? "disabled" : ""}>${submitting ? "Publishing offer…" : amount > 0 ? `Offer ${amount} · earn ${formatCredits(returnCredits)}` : "Publish offer"}</button>`}
     </form>`;
   }
 
@@ -102,14 +106,20 @@
           <div><div class="eyebrow">TEAM EXCHANGE</div><h2 id="order-book-title">Credits your team can share</h2></div>
           <span class="count-chip">${openListings.length} ${openListings.length === 1 ? "offer" : "offers"}</span>
         </div>
+        <aside class="benefit-note">
+          <strong>Why share unused credits?</strong>
+          <span>When a teammate claims them, you earn flexible internal credits at your chosen rate—an IOU-like budget claim you can carry toward next week.</span>
+        </aside>
         <button class="secondary full-width" data-market-action="open-sheet" ${me ? "" : "disabled"}>Share my unused credits</button>
         ${listingSheet(me)}
         <div class="card-list allocations">
           ${openListings.length ? openListings.map((listing) => {
             const seller = window.userById(state, listing.sellerId);
             const listingDiscount = discount(listing.pricePerCredit);
+            const listingReturn = settlementCredits(listing.amount, listing.pricePerCredit);
             const isMine = listing.sellerId === window.currentUserId;
             const pendingKey = `${isMine ? "cancel" : "buy"}:${listing.id}`;
+            const canAfford = Boolean(me && me.balance >= listingReturn);
             return `<article class="card allocation-card">
               <div class="card-row allocation-topline">
                 <div><div class="allocation-amount">${listing.amount}<span> credits</span></div><div class="rate-line">Ready to move now</div></div>
@@ -118,11 +128,12 @@
               <div class="seller-context">
                 <span>From ${window.escapeHtml(seller?.name || "a teammate")}</span>
                 <span>${seller ? `expects to use ${percent(seller.predictedUsagePct)} of their weekly plan` : "usage outlook unavailable"}</span>
+                <span>${isMine ? `You earn ${formatCredits(listingReturn)} flexible credits when claimed` : `Costs ${formatCredits(listingReturn)} internal credits`}</span>
                 <span>${when(listing.createdAt)}</span>
               </div>
               ${isMine
                 ? `<button class="ghost full-width" data-market-action="cancel" data-listing-id="${window.escapeHtml(listing.id)}" ${view.pending.has(pendingKey) ? "disabled" : ""}>${view.pending.has(pendingKey) ? "Withdrawing offer…" : "Withdraw offer and return credits"}</button>`
-                : `<button class="primary full-width" data-market-action="buy" data-listing-id="${window.escapeHtml(listing.id)}" ${!me || view.pending.has(pendingKey) ? "disabled" : ""}>${view.pending.has(pendingKey) ? "Moving credits…" : `Add ${listing.amount} credits to my budget`}</button>`}
+                : `<button class="primary full-width" data-market-action="buy" data-listing-id="${window.escapeHtml(listing.id)}" ${!canAfford || view.pending.has(pendingKey) ? "disabled" : ""}>${view.pending.has(pendingKey) ? "Moving credits…" : canAfford ? `Use ${formatCredits(listingReturn)} to add ${listing.amount} credits` : `Need ${formatCredits(listingReturn)} credits`}</button>`}
             </article>`;
           }).join("") : '<div class="empty">No shared credits right now. Offer unused credits to start the exchange.</div>'}
         </div>
@@ -136,7 +147,7 @@
             const seller = window.userById(state, trade.sellerId);
             const tradeDiscount = discount(trade.amount ? trade.total / trade.amount : 0);
             return `<article class="trade-row">
-              <div><strong>${window.escapeHtml(seller?.name || "A teammate")} shared with ${window.escapeHtml(buyer?.name || "a teammate")}</strong><span>${trade.amount} credits · ${tradeDiscount}% team discount</span></div>
+              <div><strong>${window.escapeHtml(seller?.name || "A teammate")} shared with ${window.escapeHtml(buyer?.name || "a teammate")}</strong><span>${trade.amount} credits moved · ${window.escapeHtml(seller?.name || "seller")} earned ${formatCredits(trade.total)} flexible credits · ${tradeDiscount}% discount</span></div>
               <time datetime="${window.escapeHtml(trade.ts)}">${when(trade.ts)}</time>
             </article>`;
           }).join("") : '<div class="empty compact-empty">Team credit moves will appear here.</div>'}

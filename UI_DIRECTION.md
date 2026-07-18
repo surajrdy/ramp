@@ -1,14 +1,14 @@
-# UI Direction — Quiet, Phone-Like, Still Native to VS Code
+# UI Direction — Dark Liquid Glass, Phone-Like, Still Native to VS Code
 
 ## Goal
 
-Make Compute Exchange feel like a polished iPhone utility through hierarchy, spacing, rounded surfaces, and restrained motion—not by drawing a fake phone frame. Keep plain HTML/JS/CSS, VS Code theme compatibility, `#e8ff2b`, and every `window.renderers.<tab>` registration.
+Make Compute Exchange feel like a polished dark-mode iPhone utility through hierarchy, spacing, rounded liquid-glass surfaces, and restrained motion—not by drawing a fake phone frame. Keep plain HTML/JS/CSS, warm off-white accents, and every `window.renderers.<tab>` registration.
 
 ## Shared tokens
 
 ```css
 :root {
-  --accent: #e8ff2b;
+  --accent: #f2eadf;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -19,22 +19,22 @@ Make Compute Exchange feel like a polished iPhone utility through hierarchy, spa
   --radius-lg: 20px;
   --tap: 44px;
   --motion: 180ms cubic-bezier(.2, .8, .2, 1);
-  --surface-1: var(--vscode-sideBar-background, #111);
+  --surface-1: #141210;
   --surface-2: var(--vscode-editorWidget-background, var(--vscode-sideBarSectionHeader-background, rgba(127, 127, 127, .10)));
-  --text-muted: var(--vscode-descriptionForeground);
+  --text-muted: #b9afa3;
   --border: var(--vscode-contrastBorder, var(--vscode-panel-border, rgba(127, 127, 127, .28)));
   --shadow: 0 10px 30px rgba(0, 0, 0, .16);
 }
 ```
 
-Inside VS Code use `var(--vscode-font-family), -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif`; the spectator page may put the system fonts first. Reserve the accent for the primary action, selected tab, live status, and key savings number.
+Inside VS Code use `var(--vscode-font-family), -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif`; the spectator page may put the system fonts first. Use a true charcoal canvas regardless of the host theme and reserve the warm ivory accent for primary actions, the selected tab, live status, and key savings numbers.
 
 ## Shell and shared components
 
 - Use a sticky compact header with product name, a text-and-dot connection pill, and “Internal demo units · no cash-out.”
 - Turn the three tabs into a rounded segmented control. Keep the existing tab IDs and click contract, and add `tablist`/`tab`/`tabpanel` semantics, `aria-selected`, `aria-controls`, and Left/Right/Home/End keyboard navigation.
 - Use a mobile-first single column, `12px` page padding, and `16–24px` section gaps.
-- Give controls a `44px` minimum target, `12px` radius, and visible `:focus-visible` outline using `var(--vscode-focusBorder, #e8ff2b)`.
+- Give controls a `44px` minimum target, `12px` radius, and visible `:focus-visible` outline using `var(--vscode-focusBorder, #f2eadf)`.
 - Define reusable `.hero`, `.metric`, `.segmented`, `.stack`, `.card`, `.card-row`, `.chip`, `.action-row`, `.status-pill`, `.sheet`, and `.empty` styles in shared CSS.
 - Use `150–180ms` opacity/transform motion and disable it under `prefers-reduced-motion`. Under `forced-colors`, remove shadows and rely on contrast borders.
 - Keep one obvious primary action per card; remove decorative borders and all-uppercase debug copy where hierarchy already communicates meaning.
@@ -91,5 +91,5 @@ Suraj remains the sole `styles.css` editor and keeps owner-namespaced Team and D
 - Keyboard focus is visible and status is never communicated by color alone.
 - Toasts do not cover the current primary action.
 - Reduced-motion preference is honored.
-- Light, dark, and high-contrast VS Code themes remain legible.
+- The fixed dark theme and high-contrast/forced-colors modes remain legible.
 - No endpoint, state contract, renderer registration, framework, bundler, or dependency is added for visual polish.

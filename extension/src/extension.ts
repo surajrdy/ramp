@@ -80,6 +80,7 @@ class ComputeExchangeViewProvider implements vscode.WebviewViewProvider {
   <script nonce="${nonce}" src="${media("market.js")}"></script>
   <script nonce="${nonce}" src="${media("team.js")}"></script>
   <script nonce="${nonce}" src="${media("bet.js")}"></script>
+  <script nonce="${nonce}" src="${media("crossroad.js")}"></script>
 </body>
 </html>`;
   }

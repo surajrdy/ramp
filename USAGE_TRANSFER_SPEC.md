@@ -27,7 +27,7 @@ This is more than a UI animation: the server owns the usage mutation, forecast, 
 - `usageHistory` records normalized demand units observed by the demo.
 - `User.balance` is the user's spendable internal allocation.
 - Listings and team suggestions move that allocation between members of one organization.
-- A listing price is modeled internal chargeback metadata. There is no second currency, payment, or seller cash-out.
+- A listing price is modeled internal chargeback metadata. On settlement, the buyer transfers `amount × pricePerCredit` internal credits to the seller while receiving the escrowed allocation. The seller can carry that flexible balance toward a later week's budget, which the UI describes as an IOU-like claim. There is no second currency, payment, enforceable debt, or seller cash-out.
 - Recording usage does **not** subtract from `balance`. Demand is a meter; allocation is ledger inventory. Subtracting both would destroy credits and break conservation.
 
 ## One new endpoint
@@ -73,11 +73,11 @@ The request and response can use server-local types. No `shared/types.ts` change
 Use the seeded `u3` identity and reset or restart the server before each run.
 
 1. Open two extension clients and one `/spectate` page.
-2. Show D at about `43%` predicted usage with `340cr` spendable after seeded escrow.
+2. Show Suraj at about `43%` predicted usage with `340cr` spendable after seeded escrow.
 3. Press **Run 300cr agent burst**. The UI calls `POST /usage/simulate`—there is no client-side forecast math.
-4. D's latest usage sample changes from `49` to `349`; predicted usage rises to about `90%`.
-5. The server creates a recommendation from Credit Hoarder to D for about `200cr`, with about `$160/wk` modeled savings.
-6. Press **Apply move** in Team. The server moves the exact recommended allocation: Credit Hoarder's balance falls and D's rises by the same amount.
+4. Suraj's latest usage sample changes from `49` to `349`; predicted usage rises to about `90%`.
+5. The server creates a recommendation from Maya to Suraj for about `200cr`, with about `$160/wk` modeled savings.
+6. Press **Apply move** in Team. The server moves the exact recommended allocation: Maya's balance falls and Suraj's rises by the same amount.
 7. Show both other clients updating immediately and the spectator feed recording both events.
 
 The accepted recommendation is the transfer. The workload is the demand signal that caused it. Dollar values remain cost-avoidance estimates.

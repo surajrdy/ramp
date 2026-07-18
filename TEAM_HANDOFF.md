@@ -57,14 +57,14 @@ Suraj implements the exact seeded flow in [`USAGE_TRANSFER_SPEC.md`](./USAGE_TRA
 - [ ] A full coinflip opens, settles, pays exactly `2 × stake`, and broadcasts the result.
 - [ ] Credits remain conserved across balances plus listing/bet escrow.
 - [ ] Invalid actions return `4xx {error}` and appear as webview toasts.
-- [ ] A `300cr` simulated workload changes D's forecast, creates a recommendation, and broadcasts event then state to two clients in under one second.
-- [ ] Accepting that recommendation moves the same number of credits out of the source and into D without changing the conserved total.
+- [ ] A `300cr` simulated workload changes Suraj's forecast, creates a recommendation, and broadcasts event then state to two clients in under one second.
+- [ ] Accepting that recommendation moves the same number of credits out of the source and into Suraj without changing the conserved total.
 - [ ] `/admin/reset` restores a repeatable seed state.
 - [ ] Three extension clients and two spectator pages stay synchronized through trade → suggestion → coinflip.
 - [ ] The public URL works over HTTPS and the extension automatically uses WSS.
 
 ## Final demo and pitch
 
-Prepare one 60–90 second script: reset, run D's `300cr` agent burst, show the forecast-created recommendation, apply the allocation, point to the changed balances and savings, buy a listed allocation on another laptop, run a Degen game, and show the spectator feed updating.
+Prepare one 60–90 second script: reset, run Suraj's `300cr` agent burst, show the forecast-created recommendation, apply the allocation, point to the changed balances and savings, buy a listed allocation on another laptop, run a Degen game, and show the spectator feed updating.
 
 Use the core framing verbatim: “Compute Exchange never transfers vendor credits between accounts—it is an internal budget-reallocation layer over an organization’s existing spend.” Option B—the platform-owned provider proxy—is a roadmap slide only and must not become demo code.

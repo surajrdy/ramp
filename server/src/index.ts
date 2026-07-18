@@ -208,19 +208,27 @@ app.post("/trades", (request, response) => {
     return;
   }
 
+  const total = round(listing.amount * listing.pricePerCredit);
+  if (buyer.balance < total) {
+    sendError(response, 409, "Buyer does not have enough internal credits for this offer");
+    return;
+  }
+
   const trade: Trade = {
     id: `trade-${nextTradeId++}`,
     listingId: listing.id,
     buyerId: buyer.id,
     sellerId: seller.id,
     amount: listing.amount,
-    total: round(listing.amount * listing.pricePerCredit),
+    total,
     ts: new Date().toISOString(),
   };
   listing.status = "filled";
+  buyer.balance -= total;
+  seller.balance += total;
   buyer.balance += listing.amount;
   state.trades.push(trade);
-  finishMutation(`${buyer.name} reallocated ${listing.amount} credits from ${seller.name} at ${listing.pricePerCredit.toFixed(2)}x.`);
+  finishMutation(`${buyer.name} received ${listing.amount} credits from ${seller.name}; ${seller.name} earned ${total.toFixed(2)} flexible credits.`);
   response.status(201).json(trade);
 });
 
@@ -526,6 +534,245 @@ app.post("/admin/reset", (_request, response) => {
   response.json({ reset: true, state });
 });
 
+app.get("/admin", (_request, response) => {
+  response.type("html").send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Compute Exchange Forecast Console</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+      color: #f4eee5;
+      background: #090807;
+      --accent: #f2eadf;
+      --canvas: #141210;
+      --canvas-deep: #090807;
+      --glass: rgba(38, 35, 32, .72);
+      --glass-strong: rgba(47, 43, 39, .9);
+      --glass-soft: rgba(247, 239, 228, .07);
+      --ink: #f4eee5;
+      --ink-soft: #d2c8bc;
+      --muted: #a49a8f;
+      --line: rgba(250, 241, 228, .11);
+      --line-strong: rgba(250, 241, 228, .19);
+      --shadow: 0 24px 72px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 250, 242, .1);
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 92% -4%, rgba(181, 119, 82, .18), transparent 34%),
+        radial-gradient(circle at -16% 34%, rgba(255, 247, 235, .065), transparent 36%),
+        linear-gradient(155deg, #1d1a17 0%, var(--canvas) 48%, var(--canvas-deep) 100%);
+      -webkit-font-smoothing: antialiased;
+    }
+    main { width: min(1180px, 100%); margin: 0 auto; padding: 20px 16px 52px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .brand { color: var(--ink-soft); font-size: 13px; font-weight: 760; }
+    #status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--glass-soft);
+      box-shadow: inset 0 1px 0 rgba(255, 250, 242, .08);
+      font-size: 12px;
+      font-weight: 680;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    #status::before { width: 7px; height: 7px; border-radius: 50%; background: #69645f; content: ""; }
+    #status.live { color: var(--ink); }
+    #status.live::before { background: var(--accent); box-shadow: 0 0 16px rgba(242, 234, 223, .38); }
+    .hero { padding: 52px 2px 30px; }
+    .kicker { margin: 0 0 12px; color: var(--ink-soft); font-size: 11px; font-weight: 760; letter-spacing: .1em; text-transform: uppercase; }
+    h1 { max-width: 780px; margin: 0; font-size: clamp(38px, 8vw, 72px); font-weight: 680; line-height: .98; letter-spacing: -.052em; }
+    .hero-copy { max-width: 650px; margin: 18px 0 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .metric, .panel, .person {
+      border: 1px solid var(--line);
+      background: var(--glass);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(30px) saturate(115%);
+      -webkit-backdrop-filter: blur(30px) saturate(115%);
+    }
+    .metric { min-width: 0; min-height: 138px; padding: 17px; border-radius: 24px; }
+    .metric span { display: block; color: var(--ink-soft); font-size: 12px; font-weight: 700; }
+    .metric strong { display: block; margin-top: 13px; overflow-wrap: anywhere; font-size: clamp(24px, 6vw, 36px); font-weight: 690; letter-spacing: -.04em; }
+    .metric small { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .grid { display: grid; gap: 12px; margin-top: 12px; }
+    .panel { min-width: 0; padding: 18px; border-radius: 26px; }
+    .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+    h2, h3 { margin: 0; letter-spacing: -.025em; }
+    h2 { font-size: 18px; }
+    h3 { font-size: 14px; }
+    .panel-copy { max-width: 55ch; margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .chip { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink-soft); font-size: 10px; font-weight: 700; }
+    .sparkline { display: flex; height: 116px; align-items: end; gap: clamp(4px, 1.3vw, 10px); padding: 13px; border: 1px solid rgba(250, 241, 228, .07); border-radius: 18px; background: rgba(247, 239, 228, .04); }
+    .sparkline i { min-width: 4px; flex: 1; border-radius: 5px 5px 2px 2px; background: linear-gradient(180deg, var(--accent), rgba(242, 234, 223, .24)); box-shadow: 0 0 14px rgba(242, 234, 223, .08); }
+    .trend-labels { display: flex; justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: 10px; }
+    #people { display: grid; gap: 10px; }
+    .person { padding: 15px; border-radius: 19px; background: rgba(247, 239, 228, .045); }
+    .person-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .person-values { color: var(--muted); font-size: 11px; text-align: right; }
+    .person .sparkline { height: 58px; margin-top: 12px; padding: 7px; gap: 3px; border-radius: 12px; }
+    .forecast-note { display: grid; gap: 12px; }
+    .step { padding: 14px; border: 1px solid rgba(250, 241, 228, .07); border-radius: 16px; color: var(--ink-soft); background: rgba(247, 239, 228, .04); font-size: 12px; line-height: 1.5; }
+    .step strong { display: block; margin-bottom: 4px; color: var(--ink); font-size: 13px; }
+    .boundary { margin: 19px 3px 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    @media (min-width: 760px) {
+      main { padding: 28px 28px 66px; }
+      .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .grid { grid-template-columns: 1.08fr .92fr; }
+      .trend { grid-column: 1 / -1; }
+      .metric { min-height: 132px; padding: 20px; }
+      .panel { padding: 21px; }
+    }
+    @media (max-width: 480px) {
+      .metric { min-height: 150px; }
+      .panel-head, .person-head { display: grid; }
+      .person-values { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header><div class="brand">Compute Exchange · Admin</div><div id="status">Connecting</div></header>
+    <section class="hero">
+      <p class="kicker">Read-only forecast console</p>
+      <h1>See where AI budget goes next.</h1>
+      <p class="hero-copy">Live demand history, projected weekly usage, and the savings available from moving existing internal allocation.</p>
+    </section>
+    <section class="metrics" aria-label="Organization forecast summary">
+      <article class="metric"><span>Spendable balance</span><strong id="balance">—</strong><small>Credits currently available across teammates</small></article>
+      <article class="metric"><span>Weekly quota</span><strong id="quota">—</strong><small>Total planned capacity for the organization</small></article>
+      <article class="metric"><span>Projected this week</span><strong id="projected">—</strong><small id="utilization">Across all weekly quotas</small></article>
+      <article class="metric"><span>Savings on the table</span><strong id="savings">—</strong><small>Estimated from current transfer suggestions</small></article>
+    </section>
+    <section class="grid">
+      <article class="panel trend">
+        <div class="panel-head"><div><h2>Organization usage trend</h2><p class="panel-copy">Daily credits used across the team, summed from each person's 14-day history.</p></div><span class="chip">14 days</span></div>
+        <div id="team-trend"></div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><h2>Team forecasts</h2><p class="panel-copy">Projected credits, quota, utilization, and recent usage for every teammate.</p></div><span class="chip">Live state</span></div>
+        <div id="people"></div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><h2>How the forecast works</h2><p class="panel-copy">The same server-side model that creates team transfer suggestions.</p></div><span class="chip">Server model</span></div>
+        <div class="forecast-note">
+          <div class="step"><strong>1 · Weight recent behavior</strong>The model separates the 14-day history into weekdays and weekends. Within each group, newer samples receive larger linear weights.</div>
+          <div class="step"><strong>2 · Project seven days</strong>Five times the weighted weekday average plus two times the weighted weekend average becomes projected weekly credits. Dividing by quota gives forecast utilization, clamped from 0–100%.</div>
+          <div class="step"><strong>3 · Find safe moves</strong>Teammates below 60% forecast utilization can supply surplus; teammates above 85% may need capacity. The server greedily pairs them and computes the displayed savings.</div>
+        </div>
+      </article>
+    </section>
+    <p class="boundary">Read-only view. Usage forecasts inform transfers of internal demo allocation only; no vendor credits, accounts, credentials, or money move between people.</p>
+  </main>
+  <script>
+    const elements = {
+      status: document.getElementById("status"),
+      balance: document.getElementById("balance"),
+      quota: document.getElementById("quota"),
+      projected: document.getElementById("projected"),
+      utilization: document.getElementById("utilization"),
+      savings: document.getElementById("savings"),
+      teamTrend: document.getElementById("team-trend"),
+      people: document.getElementById("people"),
+    };
+    const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+    let reconnectTimer;
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "\\\"": "&quot;", "'": "&#39;",
+      })[character]);
+    }
+
+    function normalizedHistory(history) {
+      const clean = Array.isArray(history)
+        ? history.map((value) => Number.isFinite(value) ? Math.max(0, value) : 0).slice(-14)
+        : [];
+      return Array(14 - clean.length).fill(0).concat(clean);
+    }
+
+    function sparkline(values) {
+      const safeValues = normalizedHistory(values);
+      const maximum = Math.max(1, ...safeValues);
+      const bars = safeValues.map((value) => '<i style="height:'
+        + Math.max(4, Math.round((value / maximum) * 100)) + '%" title="'
+        + number.format(value) + ' credits"></i>').join("");
+      return '<div class="sparkline" role="img" aria-label="Fourteen-day usage trend">'
+        + bars + '</div><div class="trend-labels"><span>14 days ago</span><span>Today</span></div>';
+    }
+
+    function renderState(state) {
+      const users = Array.isArray(state.users) ? state.users : [];
+      const totalBalance = users.reduce((sum, user) => sum + user.balance, 0);
+      const totalQuota = users.reduce((sum, user) => sum + user.weeklyQuota, 0);
+      const totalProjected = users.reduce((sum, user) => sum + user.weeklyQuota * user.predictedUsagePct, 0);
+      const utilization = totalQuota === 0 ? 0 : totalProjected / totalQuota;
+      const savings = state.suggestions.reduce((sum, suggestion) => sum + suggestion.projectedSavings, 0);
+      const teamHistory = Array.from({ length: 14 }, (_unused, index) => users.reduce(
+        (sum, user) => sum + normalizedHistory(user.usageHistory)[index], 0));
+
+      elements.balance.textContent = number.format(totalBalance) + " credits";
+      elements.quota.textContent = number.format(totalQuota) + " credits";
+      elements.projected.textContent = number.format(totalProjected) + " credits";
+      elements.utilization.textContent = Math.round(utilization * 100) + "% of total quota";
+      elements.savings.textContent = "$" + number.format(savings) + "/wk";
+      elements.teamTrend.innerHTML = sparkline(teamHistory);
+      elements.people.innerHTML = users.slice().sort((left, right) => right.predictedUsagePct - left.predictedUsagePct)
+        .map((user) => {
+          const projected = user.weeklyQuota * user.predictedUsagePct;
+          return '<article class="person"><div class="person-head"><h3>' + escapeHtml(user.name)
+            + '</h3><div class="person-values">' + number.format(projected) + ' projected / '
+            + number.format(user.weeklyQuota) + ' quota · ' + Math.round(user.predictedUsagePct * 100)
+            + '%</div></div>' + sparkline(user.usageHistory) + '</article>';
+        }).join("");
+    }
+
+    function connect() {
+      clearTimeout(reconnectTimer);
+      elements.status.textContent = "Connecting";
+      elements.status.classList.remove("live");
+      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(protocol + "//" + location.host);
+      socket.addEventListener("open", () => {
+        elements.status.textContent = "Live";
+        elements.status.classList.add("live");
+      });
+      socket.addEventListener("close", () => {
+        elements.status.textContent = "Reconnecting";
+        elements.status.classList.remove("live");
+        reconnectTimer = setTimeout(connect, 1200);
+      });
+      socket.addEventListener("error", () => socket.close());
+      socket.addEventListener("message", (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === "state") renderState(message.state);
+        } catch (_error) {
+          elements.status.textContent = "Invalid update";
+          elements.status.classList.remove("live");
+        }
+      });
+    }
+
+    connect();
+  </script>
+</body>
+</html>`);
+});
+
 app.get("/spectate", (_request, response) => {
   response.type("html").send(`<!doctype html>
 <html lang="en">
@@ -535,20 +782,21 @@ app.get("/spectate", (_request, response) => {
   <title>Compute Exchange Live</title>
   <style>
     :root {
-      color-scheme: light;
+      color-scheme: dark;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
-      background: #f5efe5;
-      color: #2d2926;
-      --accent: #e8ff2b;
-      --paper: #f5efe5;
-      --panel: rgba(255, 252, 246, .66);
-      --panel-solid: rgba(255, 252, 246, .88);
-      --line: rgba(255, 255, 255, .8);
-      --line-warm: rgba(73, 63, 53, .1);
-      --ink: #2d2926;
-      --ink-soft: #615a53;
-      --muted: #817970;
-      --shadow: 0 18px 60px rgba(72, 55, 39, .09), inset 0 1px 0 rgba(255, 255, 255, .82);
+      background: #090807;
+      color: #f4eee5;
+      --accent: #f2eadf;
+      --canvas: #141210;
+      --canvas-deep: #090807;
+      --panel: rgba(38, 35, 32, .72);
+      --panel-solid: rgba(247, 239, 228, .07);
+      --line: rgba(250, 241, 228, .11);
+      --line-warm: rgba(250, 241, 228, .19);
+      --ink: #f4eee5;
+      --ink-soft: #d2c8bc;
+      --muted: #a49a8f;
+      --shadow: 0 24px 72px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 250, 242, .1);
     }
     * { box-sizing: border-box; }
     body {
@@ -556,9 +804,9 @@ app.get("/spectate", (_request, response) => {
       min-height: 100vh;
       overflow-x: hidden;
       background:
-        radial-gradient(circle at 92% 4%, rgba(225, 199, 166, .62) 0, transparent 24rem),
-        radial-gradient(circle at 4% 42%, rgba(255, 255, 255, .92) 0, transparent 26rem),
-        linear-gradient(145deg, #f8f3ea 0%, #efe6d8 100%);
+        radial-gradient(circle at 92% -4%, rgba(181, 119, 82, .18), transparent 34%),
+        radial-gradient(circle at -16% 34%, rgba(255, 247, 235, .065), transparent 36%),
+        linear-gradient(155deg, #1d1a17 0%, var(--canvas) 48%, var(--canvas-deep) 100%);
     }
     body::before, body::after {
       content: "";
@@ -568,8 +816,8 @@ app.get("/spectate", (_request, response) => {
       filter: blur(2px);
       pointer-events: none;
     }
-    body::before { width: 220px; height: 220px; top: 18%; right: -90px; background: rgba(255, 255, 255, .5); }
-    body::after { width: 160px; height: 160px; bottom: 8%; left: -80px; background: rgba(210, 183, 151, .22); }
+    body::before { width: 240px; height: 240px; top: 18%; right: -100px; background: rgba(255, 248, 239, .07); box-shadow: 0 0 90px rgba(210, 170, 139, .07); }
+    body::after { width: 180px; height: 180px; bottom: 8%; left: -90px; background: rgba(255, 247, 235, .045); box-shadow: 0 0 70px rgba(255, 247, 235, .04); }
     main { width: min(1080px, 100%); min-width: 0; margin: 0 auto; padding: 18px 16px 44px; overflow: hidden; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .brand { font-size: 13px; font-weight: 760; letter-spacing: -.01em; }
@@ -580,15 +828,15 @@ app.get("/spectate", (_request, response) => {
       padding: 7px 11px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: rgba(255, 252, 246, .55);
+      background: rgba(255, 249, 239, .06);
       color: var(--muted);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 10px 28px rgba(0, 0, 0, .18);
       font-size: 12px;
       font-weight: 650;
       backdrop-filter: blur(18px) saturate(130%);
       -webkit-backdrop-filter: blur(18px) saturate(130%);
     }
-    #status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #b4a89c; }
+    #status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #69645f; }
     #status.live { color: var(--ink); }
     #status.live::before { background: var(--accent); }
     .hero { padding: 52px 2px 30px; }
@@ -600,14 +848,14 @@ app.get("/spectate", (_request, response) => {
       border: 1px solid var(--line);
       background: var(--panel);
       box-shadow: var(--shadow);
-      backdrop-filter: blur(28px) saturate(125%);
-      -webkit-backdrop-filter: blur(28px) saturate(125%);
+      backdrop-filter: blur(30px) saturate(115%);
+      -webkit-backdrop-filter: blur(30px) saturate(115%);
     }
     .metric { position: relative; min-width: 0; min-height: 142px; padding: 17px; overflow: hidden; border-radius: 24px; }
     .metric > span { display: block; color: var(--ink-soft); font-size: 12px; font-weight: 720; }
     .metric strong { display: block; margin-top: 14px; overflow-wrap: anywhere; font-size: clamp(25px, 7vw, 38px); font-weight: 690; letter-spacing: -.045em; }
     .metric small { display: block; max-width: 20ch; margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.35; }
-    .metric.positive::after { content: ""; position: absolute; width: 9px; height: 9px; top: 18px; right: 18px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px rgba(232, 255, 43, .18); }
+    .metric.positive::after { content: ""; position: absolute; width: 9px; height: 9px; top: 18px; right: 18px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px rgba(242, 234, 223, .1), 0 0 24px rgba(242, 234, 223, .3); }
     .layout { display: grid; gap: 12px; margin-top: 12px; }
     .panel { padding: 18px; overflow: hidden; border-radius: 26px; }
     .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
@@ -616,7 +864,7 @@ app.get("/spectate", (_request, response) => {
     .panel-copy { max-width: 30ch; margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
     .eyebrow { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--line-warm); border-radius: 999px; color: var(--ink-soft); font-size: 10px; font-weight: 680; white-space: nowrap; }
     #feed, #members, #offers { display: grid; gap: 9px; }
-    .event, .member, .offer, .empty { padding: 13px 14px; border: 1px solid rgba(86, 73, 60, .07); border-radius: 16px; background: var(--panel-solid); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .62); }
+    .event, .member, .offer, .empty { padding: 13px 14px; border: 1px solid rgba(255, 248, 236, .07); border-radius: 16px; background: var(--panel-solid); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .055), 0 8px 24px rgba(0, 0, 0, .12); }
     .event { font-size: 14px; line-height: 1.42; }
     .event time, .empty { color: var(--muted); font-size: 11px; }
     .event time { display: block; margin-top: 6px; }
@@ -625,8 +873,8 @@ app.get("/spectate", (_request, response) => {
     .member-name, .offer strong { color: var(--ink); font-size: 13px; font-weight: 720; }
     .member-values, .offer span { color: var(--muted); font-size: 11px; }
     .member-values { text-align: right; }
-    .bar { height: 6px; margin-top: 10px; overflow: hidden; border-radius: 99px; background: rgba(76, 65, 54, .09); }
-    .bar i { display: block; height: 100%; border-radius: inherit; background: #71685f; }
+    .bar { height: 6px; margin-top: 10px; overflow: hidden; border-radius: 99px; background: rgba(255, 248, 236, .075); }
+    .bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #aaa096, var(--accent)); box-shadow: 0 0 16px rgba(242, 234, 223, .14); }
     .boundary { margin: 19px 3px 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
     @media (min-width: 760px) {
       main { padding: 26px 28px 64px; }
