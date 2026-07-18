@@ -775,8 +775,8 @@ h2 {
 .coinflip-form label { font-weight: 700; }
 .form-row { justify-content: flex-start; }
 
-.game-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 16px; }
-.game-tab { border: 0; border-radius: 4px; padding: 6px 8px; font-size: 12px; font-weight: 600; color: var(--vscode-foreground); background: var(--surface); cursor: pointer; }
+.game-selector { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin-bottom: 16px; }
+.game-tab { min-width: 0; border: 0; border-radius: 7px; padding: 7px 4px; font-size: 10px; font-weight: 650; color: var(--ink-soft); background: var(--glass-soft); cursor: pointer; }
 .game-tab.active { color: #111; background: var(--accent); font-weight: 800; }
 .game-tab:disabled { opacity: 0.35; cursor: not-allowed; }
 
